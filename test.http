@@ -1,0 +1,237 @@
+### ============================================================
+###  Jayaram Mittai — API Test Suite
+###  Requires: VS Code REST Client extension (humao.rest-client)
+###  Click "Send Request" above each ### block to run it.
+### ============================================================
+
+@baseUrl = http://localhost:5000
+
+# After login, paste the tokens here and all requests below use them
+@accessToken  = PASTE_ACCESS_TOKEN_HERE
+@refreshToken = PASTE_REFRESH_TOKEN_HERE
+@productId    = PASTE_PRODUCT_UUID_HERE
+
+
+### ════════════════════════════════════════════════════════════
+###  1. ADMIN AUTH
+### ════════════════════════════════════════════════════════════
+
+### 1a. Login  (public — no token needed)
+POST {{baseUrl}}/admin/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@jayarammittai.com",
+  "password": "Admin@1234"
+}
+
+###
+
+### 1b. Register new admin  (requires existing admin JWT)
+POST {{baseUrl}}/admin/auth/register
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "email": "newadmin@jayarammittai.com",
+  "password": "NewAdmin@5678"
+}
+
+###
+
+### 1c. Refresh tokens  ← send the REFRESH token here
+POST {{baseUrl}}/admin/auth/refresh
+Authorization: Bearer {{refreshToken}}
+
+###
+
+### 1d. Logout  (invalidates refresh token in DB)
+POST {{baseUrl}}/admin/auth/logout
+Authorization: Bearer {{accessToken}}
+
+###
+
+
+### ════════════════════════════════════════════════════════════
+###  2. ADMIN PRODUCTS  (all require admin JWT)
+### ════════════════════════════════════════════════════════════
+
+### 2a. Create Product
+POST {{baseUrl}}/admin/products
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "name": "Kaju Katli",
+  "description": "Premium cashew fudge made with pure ghee",
+  "price": 350,
+  "stock": 100,
+  "category": "Mithai",
+  "images": [
+    "https://example.com/images/kaju-katli.jpg"
+  ],
+  "isActive": true
+}
+
+###
+
+### 2b. List All Products
+GET {{baseUrl}}/admin/products
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 2c. Get Single Product by UUID  (paste UUID into @productId above)
+GET {{baseUrl}}/admin/products/{{productId}}
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 2d. Update Product  (partial — only send changed fields)
+PATCH {{baseUrl}}/admin/products/{{productId}}
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "price": 380,
+  "stock": 80,
+  "isActive": true
+}
+
+###
+
+
+### ════════════════════════════════════════════════════════════
+###  3. PUBLIC CATALOG  (no auth needed)
+### ════════════════════════════════════════════════════════════
+
+### 3a. List All Catalog Products
+GET {{baseUrl}}/api/catalog/products
+
+###
+
+### 3b. Search by categorySlug + productId
+GET {{baseUrl}}/api/catalog/products/search?categorySlug=desserts&productId=royal-rasamalai
+
+###
+
+### 3c. Search by categorySlug only
+GET {{baseUrl}}/api/catalog/products/search?categorySlug=mithai
+
+###
+
+
+### ════════════════════════════════════════════════════════════
+###  4. OTP AUTH  (customer-facing, no admin token needed)
+### ════════════════════════════════════════════════════════════
+
+### 4a. Request OTP  (sends email OTP via Supabase)
+POST {{baseUrl}}/api/auth/otp/request
+Content-Type: application/json
+
+{
+  "email": "customer@example.com"
+}
+
+###
+
+### 4b. Verify OTP  (paste the token received in the email)
+POST {{baseUrl}}/api/auth/otp/verify
+Content-Type: application/json
+
+{
+  "email": "customer@example.com",
+  "token": "123456"
+}
+
+###
+
+
+### ════════════════════════════════════════════════════════════
+###  5. ORDERS  (no auth needed)
+### ════════════════════════════════════════════════════════════
+
+### 5a. Create Order — full example
+POST {{baseUrl}}/api/orders/create
+Content-Type: application/json
+
+{
+  "customer": {
+    "fullName": "Priya Ramesh",
+    "phone": "9876543210",
+    "email": "priya@example.com"
+  },
+  "address": {
+    "line1": "12, Gandhi Salai",
+    "line2": "Near Marina Beach",
+    "city": "Chennai",
+    "pincode": "600001",
+    "zoneId": "zone_chennai_central"
+  },
+  "items": [
+    { "productId": "milk_mysore_pak", "quantity": 2 },
+    { "productId": "prod-rasamalai",  "quantity": 1 }
+  ],
+  "paymentMethod": "upi",
+  "idempotencyKey": "order-test-001",
+  "customerNotes": "Please pack separately"
+}
+
+###
+
+### 5b. Create Order — minimum required fields only
+POST {{baseUrl}}/api/orders/create
+Content-Type: application/json
+
+{
+  "customer": {
+    "fullName": "Arjun Kumar",
+    "phone": "9123456780"
+  },
+  "address": {
+    "line1": "45, Anna Nagar",
+    "city": "Chennai",
+    "pincode": "600040",
+    "zoneId": "zone_chennai_north"
+  },
+  "items": [
+    { "productId": "prod-basundi", "quantity": 3 }
+  ],
+  "paymentMethod": "credit_card",
+  "idempotencyKey": "order-test-002"
+}
+
+###
+
+### 5c. List All Orders
+GET {{baseUrl}}/api/orders
+
+###
+
+### 5d. Search Order by order number
+# Change the date to today's date in YYYY/MM/DD format
+GET {{baseUrl}}/api/orders/search?orderNumber=JM-2026/09/28-1
+
+###
+
+
+### ════════════════════════════════════════════════════════════
+###  REFERENCE
+### ════════════════════════════════════════════════════════════
+#
+#  VALID productId values (hard-coded in orders.service.ts):
+#    milk_mysore_pak   → Milk Mysore Pak          ₹180 / 250g
+#    prod-rasamalai    → Royal Rasamalai           ₹120 / 2 pcs
+#    prod-basundi      → Rich Badam Basundi        ₹140 / 250g
+#    prod-badam-milk   → Pure Kesari Badam Milk    ₹90  / 300ml
+#    prod-paneer-tikka → Tandoori Paneer Tikka     ₹240 / 6 pcs
+#
+#  VALID zoneId values:
+#    zone_chennai_central → delivery ₹50,  ETA 2h
+#    zone_chennai_south   → delivery ₹100, ETA 3h
+#    zone_chennai_north   → delivery ₹100, ETA 4h
+#    (orders > ₹1000 → free delivery in any zone)
+#
+#  VALID paymentMethod values:
+#    debit_card | credit_card | upi | net_banking | sodexo
+#

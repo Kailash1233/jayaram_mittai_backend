@@ -1,10 +1,9 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule, ObserveInstrument } from './app.module.js';
+import { ValidationPipe } from '@nestjs/common';
+import { AppModule } from './app.module.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    instrument: ObserveInstrument,
-  });
+  const app = await NestFactory.create(AppModule);
 
   // Enable CORS. Set CORS_ORIGIN to a comma-separated list or single origin.
   const originEnv = process.env.CORS_ORIGIN ?? '*';
@@ -18,7 +17,21 @@ async function bootstrap() {
     credentials: true,
   });
 
-  await app.listen(process.env.PORT ?? 3000);
+  // Global input validation via class-validator.
+  // Only applies to class-based DTOs (admin auth / admin products);
+  // interface-typed bodies (orders, OTP) pass through unchanged.
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // strip unknown properties
+      forbidNonWhitelisted: true, // reject requests with unknown properties
+      transform: true, // auto-transform payloads to DTO class instances
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
+    }),
+  );
+
+  await app.listen(process.env.PORT ?? 5000);
 }
 
 await bootstrap();

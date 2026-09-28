@@ -1,3 +1,31 @@
+# Jayaram Mittai Backend
+
+Merged from `jayaram_mittai_backend` (public storefront API) and `backend` (admin API).
+
+## Routes
+
+| Area | Route | Data layer |
+|---|---|---|
+| Catalog | `GET /api/catalog/products`, `GET /api/catalog/products/search` | Supabase JS |
+| Orders | `POST /api/orders/create`, `GET /api/orders`, `GET /api/orders/search` | Supabase JS |
+| Customer OTP | `POST /api/auth/otp/request`, `POST /api/auth/otp/verify` | Supabase Auth |
+| Admin auth | `POST /admin/auth/login`, `/register`, `/refresh`, `/logout` | TypeORM (`users`) |
+| Admin products | `POST/GET /admin/products`, `GET/PATCH /admin/products/:id` | TypeORM (`products`) |
+
+## Setup
+
+```bash
+npm install
+cp .env.example .env   # fill in DATABASE_URL, JWT_*, SUPABASE_URL, SUPABASE_KEY
+npm run seed:admin     # creates the first admin (admin@jayarammittai.com)
+npm run start:dev
+```
+
+`DB_SYNCHRONIZE` is `false` by default. The admin `Product` entity and the catalog both use the
+`products` table, so don't enable auto-sync against the live Supabase database.
+
+---
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
