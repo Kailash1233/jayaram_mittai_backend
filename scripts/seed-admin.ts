@@ -23,12 +23,11 @@ const ADMIN_EMAIL = 'admin@jayarammittai.com';
 const ADMIN_PASSWORD = 'Admin@123';
 
 // ── Database connection (mirrors your app.module.ts Supabase setup) ───────────
-
 const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }, // required for Supabase pooler
-  synchronize: false,                 // never auto-migrate in seed scripts
+  synchronize: false, // never auto-migrate in seed scripts
   logging: false,
 });
 

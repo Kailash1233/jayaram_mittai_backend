@@ -3,24 +3,23 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { User, UserRole } from './entities/user.entity.js';
 
 @Injectable()
 export class UsersService {
-  private readonly users = new Map<string, User>();
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
 
   /**
    * Find a user by their email address.
    * Returns null if not found (caller decides how to handle).
    */
   async findByEmail(email: string): Promise<User | null> {
-    for (const user of this.users.values()) {
-      if (user.email === email) {
-        return user;
-      }
-    }
-    return null;
+    return this.userRepository.findOneBy({ email });
   }
 
   /**
@@ -28,7 +27,7 @@ export class UsersService {
    * Throws NotFoundException if not found.
    */
   async findById(id: string): Promise<User> {
-    const user = this.users.get(id);
+    const user = await this.userRepository.findOneBy({ id });
     if (!user) {
       throw new NotFoundException('User not found.');
     }
@@ -49,18 +48,14 @@ export class UsersService {
       throw new ConflictException('An account with this email already exists.');
     }
 
-    const user = Object.assign(new User(), {
-      id: randomUUID(),
+    const user = this.userRepository.create({
       email,
       hashedPassword,
       role,
       hashedRefreshToken: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
     });
 
-    this.users.set(user.id, user);
-    return user;
+    return this.userRepository.save(user);
   }
 
   /**
@@ -71,12 +66,13 @@ export class UsersService {
     userId: string,
     hashedRefreshToken: string | null,
   ): Promise<void> {
-    const user = this.users.get(userId);
+    const user = await this.userRepository.findOneBy({ id: userId });
     if (!user) {
       throw new NotFoundException('User not found.');
     }
 
     user.hashedRefreshToken = hashedRefreshToken;
     user.updatedAt = new Date();
+    await this.userRepository.save(user);
   }
 }
