@@ -3,23 +3,24 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { randomUUID } from 'node:crypto';
 import { User, UserRole } from './entities/user.entity.js';
 
 @Injectable()
 export class UsersService {
-  constructor(
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
-  ) {}
+  private readonly users = new Map<string, User>();
 
   /**
    * Find a user by their email address.
    * Returns null if not found (caller decides how to handle).
    */
   async findByEmail(email: string): Promise<User | null> {
-    return this.userRepository.findOne({ where: { email } });
+    for (const user of this.users.values()) {
+      if (user.email === email) {
+        return user;
+      }
+    }
+    return null;
   }
 
   /**
@@ -27,7 +28,7 @@ export class UsersService {
    * Throws NotFoundException if not found.
    */
   async findById(id: string): Promise<User> {
-    const user = await this.userRepository.findOne({ where: { id } });
+    const user = this.users.get(id);
     if (!user) {
       throw new NotFoundException('User not found.');
     }
@@ -48,8 +49,18 @@ export class UsersService {
       throw new ConflictException('An account with this email already exists.');
     }
 
-    const user = this.userRepository.create({ email, hashedPassword, role });
-    return this.userRepository.save(user);
+    const user = Object.assign(new User(), {
+      id: randomUUID(),
+      email,
+      hashedPassword,
+      role,
+      hashedRefreshToken: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    this.users.set(user.id, user);
+    return user;
   }
 
   /**
@@ -60,6 +71,12 @@ export class UsersService {
     userId: string,
     hashedRefreshToken: string | null,
   ): Promise<void> {
-    await this.userRepository.update(userId, { hashedRefreshToken });
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new NotFoundException('User not found.');
+    }
+
+    user.hashedRefreshToken = hashedRefreshToken;
+    user.updatedAt = new Date();
   }
 }

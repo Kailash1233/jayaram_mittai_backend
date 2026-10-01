@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
+import { createObserveModule } from '@nestjs/observe';
 
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
@@ -14,44 +14,44 @@ import { ProductsService } from './catalog/products/products.service.js';
 import { AdminProductsModule } from './admin/products/products.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
-import databaseConfig from './config/database.config.js';
+import { EmailAuthModule } from './auth/email-auth/email-auth.module.js';
 
-
+export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 @Module({
   imports: [
-    // ── Global Config ─────────────────────────────────────────────────────
+    // Global Config
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig],
       envFilePath: '.env',
     }),
 
-
-
-    // ── Supabase JS client (catalog, orders, OTP auth) ────────────────────
-    SupabaseModule,
-
-    // ── Postgres via TypeORM (admin users, admin products) ────────────────
-    TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        ...configService.get('database'),
-      }),
-      inject: [ConfigService],
+    // Observe
+    ObserveModule.forRoot({
+      appKey: process.env.OBSERVE_APP_KEY as string,
+      appSecret: process.env.OBSERVE_APP_SECRET as string,
+      serviceId: 'jayaram_mittai-backend',
     }),
 
-    // ── Admin feature modules ─────────────────────────────────────────────
+    // Supabase
+    SupabaseModule,
+
+    // Email Authentication
+    EmailAuthModule,
+
+    // Admin feature modules
     AdminProductsModule,
     UsersModule,
     AuthModule,
   ],
+
   controllers: [
     AppController,
     OrdersController,
     RequestController,
     ProductsController,
   ],
+
   providers: [AppService, OrdersService, RequestService, ProductsService],
 })
 export class AppModule {}

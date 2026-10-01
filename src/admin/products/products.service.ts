@@ -4,42 +4,46 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { randomUUID } from 'node:crypto';
 import { Product } from './entities/product.entity.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 
 @Injectable()
 export class AdminProductsService {
-  constructor(
-    @InjectRepository(Product)
-    private readonly productRepository: Repository<Product>,
-  ) {}
+  private readonly products = new Map<string, Product>();
 
   /**
-   * Creates a new product in the database.
+   * Creates a new product in the in-memory store.
    * @param createProductDto - Validated product data from the request body.
    * @returns The newly created product entity.
    */
   async create(createProductDto: CreateProductDto): Promise<Product> {
     try {
-      const product = this.productRepository.create({
+      const duplicate = [...this.products.values()].find(
+        (product) => product.name === createProductDto.name,
+      );
+
+      if (duplicate) {
+        throw new ConflictException('A product with this name already exists.');
+      }
+
+      const product = Object.assign(new Product(), {
+        id: randomUUID(),
         ...createProductDto,
         images: createProductDto.images ?? [],
         isActive: createProductDto.isActive ?? true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       });
 
-      return await this.productRepository.save(product);
+      this.products.set(product.id, product);
+      return product;
     } catch (error: unknown) {
-      // Handle unique constraint violations gracefully
-      if (
-        error instanceof Object &&
-        'code' in error &&
-        (error as { code: string }).code === '23505'
-      ) {
-        throw new ConflictException('A product with this name already exists.');
+      if (error instanceof ConflictException) {
+        throw error;
       }
+
       throw new InternalServerErrorException(
         'Failed to create product. Please try again.',
       );
@@ -47,24 +51,12 @@ export class AdminProductsService {
   }
 
   /**
-   * Updates an existing product by ID.
-   *
-   * Only the fields present in `updateProductDto` are changed.
-   * When `images` is supplied it fully replaces the existing image array
-   * (image-override semantics — no merging).
-   *
-   * @param id - UUID of the product to update.
-   * @param updateProductDto - Partial product data.
-   * @returns The updated product entity.
-   * @throws NotFoundException when no product with the given ID exists.
-   */
-  /**
    * Returns all products ordered by creation date (newest first).
    */
   async findAll(): Promise<Product[]> {
-    return this.productRepository.find({
-      order: { createdAt: 'DESC' },
-    });
+    return [...this.products.values()].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
   }
 
   /**
@@ -72,7 +64,7 @@ export class AdminProductsService {
    * @throws NotFoundException when no product with the given ID exists.
    */
   async findOne(id: string): Promise<Product> {
-    const product = await this.productRepository.findOne({ where: { id } });
+    const product = this.products.get(id);
 
     if (!product) {
       throw new NotFoundException(`Product with id "${id}" not found.`);
@@ -81,29 +73,27 @@ export class AdminProductsService {
     return product;
   }
 
-  async update(id: string, updateProductDto: UpdateProductDto): Promise<Product> {
-    const product = await this.productRepository.findOne({ where: { id } });
+  async update(
+    id: string,
+    updateProductDto: UpdateProductDto,
+  ): Promise<Product> {
+    const product = this.products.get(id);
 
     if (!product) {
       throw new NotFoundException(`Product with id "${id}" not found.`);
     }
 
-    // Merge only supplied fields; `images` replaces the whole array when present.
-    Object.assign(product, updateProductDto);
+    const duplicate = [...this.products.values()].find(
+      (existing) =>
+        existing.id !== id && existing.name === updateProductDto.name,
+    );
 
-    try {
-      return await this.productRepository.save(product);
-    } catch (error: unknown) {
-      if (
-        error instanceof Object &&
-        'code' in error &&
-        (error as { code: string }).code === '23505'
-      ) {
-        throw new ConflictException('A product with this name already exists.');
-      }
-      throw new InternalServerErrorException(
-        'Failed to update product. Please try again.',
-      );
+    if (duplicate) {
+      throw new ConflictException('A product with this name already exists.');
     }
+
+    Object.assign(product, updateProductDto);
+    product.updatedAt = new Date();
+    return product;
   }
 }

@@ -5,7 +5,7 @@ export default registerAs(
   'database',
   (): TypeOrmModuleOptions => ({
     type: 'postgres',
-    url: process.env.DATABASE_URL,
+    url: process.env.DATABASE_URL || 'https://sclwpjqdnliccjdinaui.supabase.co',
     autoLoadEntities: true,
     // Schema auto-sync is OFF unless DB_SYNCHRONIZE=true.
     // The admin Product entity maps to the same `products` table the catalog
