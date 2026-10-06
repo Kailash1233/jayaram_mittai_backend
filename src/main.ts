@@ -4,8 +4,8 @@ import { AppModule, ObserveInstrument } from './app.module.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-  instrument: ObserveInstrument,
-});
+    instrument: ObserveInstrument,
+  });
 
   // Enable CORS. Set CORS_ORIGIN to a comma-separated list or single origin.
   const originEnv = process.env.CORS_ORIGIN ?? '*';

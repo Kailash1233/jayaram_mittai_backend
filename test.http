@@ -10,6 +10,8 @@
 @accessToken  = PASTE_ACCESS_TOKEN_HERE
 @refreshToken = PASTE_REFRESH_TOKEN_HERE
 @productId    = PASTE_PRODUCT_UUID_HERE
+@orderId      = PASTE_ORDER_ID_HERE
+
 
 
 ### ════════════════════════════════════════════════════════════
@@ -235,3 +237,381 @@ GET {{baseUrl}}/api/orders/search?orderNumber=JM-2026/09/28-1
 #  VALID paymentMethod values:
 #    debit_card | credit_card | upi | net_banking | sodexo
 #
+
+
+### ════════════════════════════════════════════════════════════
+###  6. ADMIN ORDERS  (all require admin JWT)
+###
+###  STEP 1 → Login via section 1a and paste accessToken above.
+###  STEP 2 → Run 6c (List All) to get a real order id.
+###  STEP 3 → Paste that id into @orderId above.
+###  STEP 4 → Run 6b / 6d as needed.
+### ════════════════════════════════════════════════════════════
+
+### 6a. Live Order Queue — all orders, newest first
+GET {{baseUrl}}/admin/orders
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 6b. Live Order Queue — filter by status
+###     Valid: confirmed | preparing | out_for_delivery | delivered | cancelled
+GET {{baseUrl}}/admin/orders?status=confirmed
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 6c. Get Single Order by ID  (paste id into @orderId above)
+GET {{baseUrl}}/admin/orders/{{orderId}}
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 6d. Update Order Status  ← the one you want to test
+###     Change "preparing" to any valid status below
+###     confirmed → preparing → out_for_delivery → delivered | cancelled
+PATCH {{baseUrl}}/admin/orders/{{orderId}}/status
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "status": "preparing"
+}
+
+###
+
+### 6e. Mark order as Out for Delivery
+PATCH {{baseUrl}}/admin/orders/{{orderId}}/status
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "status": "out_for_delivery"
+}
+
+###
+
+### 6f. Mark order as Delivered
+PATCH {{baseUrl}}/admin/orders/{{orderId}}/status
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "status": "delivered"
+}
+
+###
+
+### 6g. Cancel Order
+PATCH {{baseUrl}}/admin/orders/{{orderId}}/status
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "status": "cancelled"
+}
+
+###
+
+
+### ════════════════════════════════════════════════════════════
+###  7. ADMIN ANALYTICS  (all require admin JWT)
+### ════════════════════════════════════════════════════════════
+
+### 7a. Sales Analytics — all time
+GET {{baseUrl}}/admin/analytics/sales
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 7b. Sales Analytics — filtered by date range
+GET {{baseUrl}}/admin/analytics/sales?from=2026-10-01&to=2026-10-31
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 7c. Stock-Outs — default threshold (stock <= 10)
+GET {{baseUrl}}/admin/analytics/stock-outs
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 7d. Stock-Outs — custom threshold (stock <= 5)
+GET {{baseUrl}}/admin/analytics/stock-outs?threshold=5
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 7e. Zone Analytics — all time
+GET {{baseUrl}}/admin/analytics/zones
+Authorization: Bearer {{accessToken}}
+
+###
+
+
+### 7f. Zone Analytics — filtered by date range
+GET {{baseUrl}}/admin/analytics/zones?from=2026-10-01&to=2026-10-31
+Authorization: Bearer {{accessToken}}
+
+###
+
+# ──────────────────────────────────────────────────────────────
+#  SUPABASE SETUP — run these SQL statements once in the
+#  Supabase Dashboard → SQL Editor before testing sections 8-10
+# ──────────────────────────────────────────────────────────────
+#
+#  -- Delivery Zones
+#  create table delivery_zones (
+#    id         uuid primary key default gen_random_uuid(),
+#    name       text not null,
+#    pincodes   text[] not null default '{}',
+#    radius_km  numeric(6,2),
+#    is_active  boolean not null default true,
+#    created_at timestamptz not null default now()
+#  );
+#
+#  -- Delivery Rules
+#  create table delivery_rules (
+#    id         uuid primary key default gen_random_uuid(),
+#    zone_id    uuid references delivery_zones(id) on delete cascade,
+#    min_order  numeric(10,2) not null default 0,
+#    fee        numeric(10,2) not null default 0,
+#    is_active  boolean not null default true,
+#    created_at timestamptz not null default now()
+#  );
+#
+#  -- Operating Hours
+#  create table delivery_hours (
+#    id            uuid primary key default gen_random_uuid(),
+#    day_of_week   int check (day_of_week between 0 and 6),
+#    override_date date,
+#    open_time     time,
+#    close_time    time,
+#    is_closed     boolean not null default false,
+#    note          text,
+#    created_at    timestamptz not null default now(),
+#    constraint one_of check (
+#      (day_of_week is not null and override_date is null) or
+#      (day_of_week is null     and override_date is not null)
+#    )
+#  );
+# ──────────────────────────────────────────────────────────────
+
+@zoneId = PASTE_ZONE_UUID_HERE
+@ruleId = PASTE_RULE_UUID_HERE
+@hoursId = PASTE_HOURS_UUID_HERE
+
+
+### ════════════════════════════════════════════════════════════
+###  8. ADMIN DELIVERY — ZONES  (all require admin JWT)
+### ════════════════════════════════════════════════════════════
+
+### 8a. List All Zones
+GET {{baseUrl}}/admin/delivery/zones
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 8b. Create Zone
+POST {{baseUrl}}/admin/delivery/zones
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "name": "Chennai Central",
+  "pincodes": ["600001", "600002", "600003"],
+  "radiusKm": 3.5,
+  "isActive": true
+}
+
+###
+
+### 8c. Create Zone — South Chennai
+POST {{baseUrl}}/admin/delivery/zones
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "name": "Chennai South",
+  "pincodes": ["600020", "600041", "600042"],
+  "radiusKm": 7.5
+}
+
+###
+
+### 8d. Update Zone  (paste id into @zoneId above)
+PATCH {{baseUrl}}/admin/delivery/zones/{{zoneId}}
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "pincodes": ["600001", "600002", "600003", "600004"],
+  "isActive": true
+}
+
+###
+
+### 8e. Delete Zone
+DELETE {{baseUrl}}/admin/delivery/zones/{{zoneId}}
+Authorization: Bearer {{accessToken}}
+
+###
+
+
+### ════════════════════════════════════════════════════════════
+###  9. ADMIN DELIVERY — RULES  (all require admin JWT)
+###
+###  Rules are tiered: engine picks the rule with the highest
+###  minOrder that is still <= cart subtotal.
+###  zoneId=null → global fallback (applies to all zones)
+### ════════════════════════════════════════════════════════════
+
+### 9a. List All Rules
+GET {{baseUrl}}/admin/delivery/rules
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 9b. Create Global Rule — standard fee
+POST {{baseUrl}}/admin/delivery/rules
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "minOrder": 0,
+  "fee": 50
+}
+
+###
+
+### 9c. Create Global Rule — free delivery above ₹1000
+POST {{baseUrl}}/admin/delivery/rules
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "minOrder": 1000,
+  "fee": 0
+}
+
+###
+
+### 9d. Create Zone-Specific Rule  (paste zone id into @zoneId above)
+POST {{baseUrl}}/admin/delivery/rules
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "zoneId": "{{zoneId}}",
+  "minOrder": 0,
+  "fee": 100
+}
+
+###
+
+### 9e. Update Rule  (paste rule id into @ruleId above)
+PATCH {{baseUrl}}/admin/delivery/rules/{{ruleId}}
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "fee": 40,
+  "isActive": true
+}
+
+###
+
+### 9f. Delete Rule
+DELETE {{baseUrl}}/admin/delivery/rules/{{ruleId}}
+Authorization: Bearer {{accessToken}}
+
+###
+
+
+### ════════════════════════════════════════════════════════════
+###  10. ADMIN DELIVERY — HOURS  (all require admin JWT)
+###
+###  Two entry types:
+###    dayOfWeek   0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
+###    overrideDate  "YYYY-MM-DD"  (beats weekly schedule)
+### ════════════════════════════════════════════════════════════
+
+### 10a. Get All Hours (weekly schedule + overrides)
+GET {{baseUrl}}/admin/delivery/hours
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 10b. Set Monday Hours
+POST {{baseUrl}}/admin/delivery/hours
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "dayOfWeek": 1,
+  "openTime": "09:00",
+  "closeTime": "21:00"
+}
+
+###
+
+### 10c. Set Sunday as Closed
+POST {{baseUrl}}/admin/delivery/hours
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "dayOfWeek": 0,
+  "openTime": "00:00",
+  "closeTime": "00:00",
+  "isClosed": true
+}
+
+###
+
+### 10d. Add a Holiday Override (date-specific)
+POST {{baseUrl}}/admin/delivery/hours
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "overrideDate": "2026-11-01",
+  "openTime": "00:00",
+  "closeTime": "00:00",
+  "isClosed": true,
+  "note": "Diwali — shop closed"
+}
+
+###
+
+### 10e. Add Extended Hours Override
+POST {{baseUrl}}/admin/delivery/hours
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "overrideDate": "2026-10-31",
+  "openTime": "08:00",
+  "closeTime": "23:00",
+  "note": "Halloween special — extended hours"
+}
+
+###
+
+### 10f. Update an Hours Entry  (paste id into @hoursId above)
+PATCH {{baseUrl}}/admin/delivery/hours/{{hoursId}}
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "openTime": "10:00",
+  "closeTime": "22:00"
+}
+
+###
+
+### 10g. Delete an Hours Entry / Override
+DELETE {{baseUrl}}/admin/delivery/hours/{{hoursId}}
+Authorization: Bearer {{accessToken}}
+
+###

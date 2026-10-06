@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { createObserveModule } from '@nestjs/observe';
 
 import { AppController } from './app.controller.js';
@@ -13,6 +12,9 @@ import { SupabaseModule } from './supabase/supabase.module.js';
 import { ProductsController } from './catalog/products/products.controller.js';
 import { ProductsService } from './catalog/products/products.service.js';
 import { AdminProductsModule } from './admin/products/products.module.js';
+import { AdminOrdersModule } from './admin/orders/orders.module.js';
+import { AnalyticsModule } from './admin/analytics/analytics.module.js';
+import { AdminDeliveryModule } from './admin/delivery/delivery.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { EmailAuthModule } from './auth/email-auth/email-auth.module.js';
@@ -29,14 +31,6 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       envFilePath: '.env',
     }),
 
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      url: process.env.DATABASE_URL,
-      autoLoadEntities: true,
-      synchronize: process.env.DB_SYNCHRONIZE === 'true',
-      ssl: { rejectUnauthorized: false },
-      logging: process.env.NODE_ENV === 'development',
-    }),
 
     // Observe
     ObserveModule.forRoot({
@@ -53,6 +47,9 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
     // Admin feature modules
     AdminProductsModule,
+    AdminOrdersModule,
+    AnalyticsModule,
+    AdminDeliveryModule,
     UsersModule,
     AuthModule,
   ],
@@ -73,4 +70,4 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     AddressService,
   ],
 })
-export class AppModule {}
+export class AppModule { }

@@ -1,37 +1,73 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { User, UserRole } from './entities/user.entity.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { SUPABASE_CLIENT } from '../supabase/supabase.module.js';
+import { UserRole } from './entities/user.entity.js';
+
+/** Shape of a `users` row returned from Supabase. */
+export interface UserRow {
+  id: string;
+  email: string;
+  hashedPassword: string;
+  role: UserRole;
+  hashedRefreshToken: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 @Injectable()
 export class UsersService {
   constructor(
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
   /**
    * Find a user by their email address.
    * Returns null if not found (caller decides how to handle).
    */
-  async findByEmail(email: string): Promise<User | null> {
-    return this.userRepository.findOneBy({ email });
+  async findByEmail(email: string): Promise<UserRow | null> {
+    const { data, error } = await this.supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to look up user by email: ${error.message}`,
+      );
+    }
+
+    return data as UserRow | null;
   }
 
   /**
    * Find a user by their ID.
    * Throws NotFoundException if not found.
    */
-  async findById(id: string): Promise<User> {
-    const user = await this.userRepository.findOneBy({ id });
-    if (!user) {
+  async findById(id: string): Promise<UserRow> {
+    const { data, error } = await this.supabase
+      .from('users')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to look up user by id: ${error.message}`,
+      );
+    }
+
+    if (!data) {
       throw new NotFoundException('User not found.');
     }
-    return user;
+
+    return data as UserRow;
   }
 
   /**
@@ -42,20 +78,26 @@ export class UsersService {
     email: string,
     hashedPassword: string,
     role: UserRole = UserRole.USER,
-  ): Promise<User> {
+  ): Promise<UserRow> {
+    // Check for duplicate email
     const existing = await this.findByEmail(email);
     if (existing) {
       throw new ConflictException('An account with this email already exists.');
     }
 
-    const user = this.userRepository.create({
-      email,
-      hashedPassword,
-      role,
-      hashedRefreshToken: null,
-    });
+    const { data, error } = await this.supabase
+      .from('users')
+      .insert({ email, hashedPassword, role, hashedRefreshToken: null })
+      .select()
+      .single();
 
-    return this.userRepository.save(user);
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to create user: ${error.message}`,
+      );
+    }
+
+    return data as UserRow;
   }
 
   /**
@@ -66,13 +108,15 @@ export class UsersService {
     userId: string,
     hashedRefreshToken: string | null,
   ): Promise<void> {
-    const user = await this.userRepository.findOneBy({ id: userId });
-    if (!user) {
-      throw new NotFoundException('User not found.');
-    }
+    const { error } = await this.supabase
+      .from('users')
+      .update({ hashedRefreshToken })
+      .eq('id', userId);
 
-    user.hashedRefreshToken = hashedRefreshToken;
-    user.updatedAt = new Date();
-    await this.userRepository.save(user);
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to update refresh token: ${error.message}`,
+      );
+    }
   }
 }
