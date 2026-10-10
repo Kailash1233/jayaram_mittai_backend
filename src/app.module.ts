@@ -18,8 +18,10 @@ import { AdminDeliveryModule } from './admin/delivery/delivery.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { EmailAuthModule } from './auth/email-auth/email-auth.module.js';
-import { AddressService } from './Address/address.service.js';
-import { AddressController } from './Address/address.controller.js';
+import { AddressService } from './address/address.service.js';
+import { AddressController } from './address/address.controller.js';
+import { DeliveryZonesController } from './delivery_zones/delivery.zones.controller.js';
+import { DeliveryZonesService } from './delivery_zones/delivery.zones.service.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -30,7 +32,6 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       isGlobal: true,
       envFilePath: '.env',
     }),
-
 
     // Observe
     ObserveModule.forRoot({
@@ -60,6 +61,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     RequestController,
     ProductsController,
     AddressController,
+    DeliveryZonesController,
   ],
 
   providers: [
@@ -68,6 +70,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     RequestService,
     ProductsService,
     AddressService,
+    DeliveryZonesService,
   ],
 })
-export class AppModule { }
+export class AppModule {}

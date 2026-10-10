@@ -9,13 +9,21 @@ export class EmailAuthService {
   ) {}
 
   async signUp(email: string, password: string) {
-    const { data, error } = await this.supabase.auth.signUp({
-      email,
-      password,
-    });
-    if (error) throw error;
-    return data;
+    console.log('Signing up user with email:', email);
+  const { data, error } = await this.supabase.auth.signUp({
+    email,
+    password,
+  });
+
+  if (error) {
+    console.error('Supabase signup error:', error.message);
+    console.error('Error status:', error.status);
+    throw error;
   }
+
+  console.log('Signup response:', data);
+  return data;
+}
 
   async signIn(email: string, password: string) {
     const { data, error } = await this.supabase.auth.signInWithPassword({

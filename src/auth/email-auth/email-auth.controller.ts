@@ -9,6 +9,7 @@ export class EmailAuthController {
 
   @Post('signup')
   async signup(@Body() body: SignupDto) {
+    console.log('Received signup request with body:', body);
     return this.authService.signUp(body.email, body.password);
   }
 

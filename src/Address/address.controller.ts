@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Patch, Post } from '@nestjs/common';
+
 import { AddressService } from './address.service.js';
 import type { AddressInput } from './address.service.js';
 
@@ -12,7 +13,9 @@ export class AddressController {
   }
 
   @Post('search')
-  async getAddressById(@Body() { contact_number: contactNumber }: { contact_number: string }) {
+  async getAddressById(
+    @Body() { contact_number: contactNumber }: { contact_number: string },
+  ) {
     return this.addressService.getAddressById(contactNumber);
   }
 
