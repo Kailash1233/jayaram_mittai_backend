@@ -2,6 +2,7 @@ import {
   Injectable,
   Inject,
   InternalServerErrorException,
+  NotFoundException,
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module.js';
@@ -39,13 +40,13 @@ export class DeliveryZonesService {
       );
     }
 
-    if(!data) {
-      throw new InternalServerErrorException(
+    if (!data) {
+      throw new NotFoundException(
         `No delivery zone found for location: ${location}`,
       );
     }
 
-    return data ?? null;
+    return data;
   }
 
 }

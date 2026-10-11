@@ -52,7 +52,8 @@ export class AddressService {
       .from('addresses')
       .select()
       .eq('contact_number', number)
-      .single();
+      // maybeSingle: no rows → data null (404 below), not an error (400)
+      .maybeSingle();
 
     if (error) {
       throw new BadRequestException('Error fetching address: ' + error.message);
@@ -86,7 +87,7 @@ async updateAddress(addressInput: AddressInput) {
     })
     .eq('contact_number', contactNumber)
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) {
     throw new BadRequestException(

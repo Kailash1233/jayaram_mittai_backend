@@ -6,8 +6,6 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { OrdersController } from './orders/orders.controller.js';
 import { OrdersService } from './orders/orders.service.js';
-import { RequestController } from './auth/otp/request/request.controller.js';
-import { RequestService } from './auth/otp/request/request.service.js';
 import { SupabaseModule } from './supabase/supabase.module.js';
 import { ProductsController } from './catalog/products/products.controller.js';
 import { ProductsService } from './catalog/products/products.service.js';
@@ -17,7 +15,7 @@ import { AnalyticsModule } from './admin/analytics/analytics.module.js';
 import { AdminDeliveryModule } from './admin/delivery/delivery.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
-import { EmailAuthModule } from './auth/email-auth/email-auth.module.js';
+import { OtpModule } from './auth/otp/otp.module.js';
 import { AddressService } from './address/address.service.js';
 import { AddressController } from './address/address.controller.js';
 import { DeliveryZonesController } from './delivery_zones/delivery.zones.controller.js';
@@ -43,8 +41,8 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     // Supabase
     SupabaseModule,
 
-    // Email Authentication
-    EmailAuthModule,
+    // Customer authentication (phone OTP via Supabase Auth)
+    OtpModule,
 
     // Admin feature modules
     AdminProductsModule,
@@ -58,7 +56,6 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
   controllers: [
     AppController,
     OrdersController,
-    RequestController,
     ProductsController,
     AddressController,
     DeliveryZonesController,
@@ -67,7 +64,6 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
   providers: [
     AppService,
     OrdersService,
-    RequestService,
     ProductsService,
     AddressService,
     DeliveryZonesService,

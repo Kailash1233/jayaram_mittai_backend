@@ -4,11 +4,15 @@
 ###  Click "Send Request" above each ### block to run it.
 ### ============================================================
 
-@baseUrl = http://localhost:5000
+@baseUrl = http://localhost:3001
 
 # After login, paste the tokens here and all requests below use them
 @accessToken  = PASTE_ACCESS_TOKEN_HERE
 @refreshToken = PASTE_REFRESH_TOKEN_HERE
+
+# Customer tokens — from 4b (OTP verify): access_token / refresh_token
+@customerToken        = PASTE_CUSTOMER_ACCESS_TOKEN_HERE
+@customerRefreshToken = PASTE_CUSTOMER_REFRESH_TOKEN_HERE
 @productId    = PASTE_PRODUCT_UUID_HERE
 @orderId      = PASTE_ORDER_ID_HERE
 
@@ -124,38 +128,63 @@ GET {{baseUrl}}/api/catalog/products/search?categorySlug=mithai
 
 
 ### ════════════════════════════════════════════════════════════
-###  4. OTP AUTH  (customer-facing, no admin token needed)
+###  4. CUSTOMER AUTH — phone OTP via Supabase Auth
+###
+###  SMS goes through the Phone provider set in Supabase
+###  (Auth → Providers → Phone, e.g. Twilio). For testing without SMS,
+###  add test numbers + fixed codes there and use them below.
+###  Phone must be E.164: +<country code><number>.
 ### ════════════════════════════════════════════════════════════
 
-### 4a. Request OTP  (sends email OTP via Supabase)
+### 4a. Request OTP  (sends the SMS code)
 POST {{baseUrl}}/api/auth/otp/request
 Content-Type: application/json
 
 {
-  "email": "customer@example.com"
+  "phone": "+919000000001"
 }
 
 ###
 
-### 4b. Verify OTP  (paste the token received in the email)
+### 4b. Verify OTP  → returns access_token + refresh_token
+###     Paste them into @customerToken / @customerRefreshToken above.
 POST {{baseUrl}}/api/auth/otp/verify
 Content-Type: application/json
 
 {
-  "email": "customer@example.com",
+  "phone": "+919000000001",
   "token": "123456"
 }
 
 ###
 
+### 4c. Refresh session  (when the access token has expired)
+POST {{baseUrl}}/api/auth/otp/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{customerRefreshToken}}"
+}
+
+###
+
+### 4d. Logout  (ends this customer's session only)
+POST {{baseUrl}}/api/auth/logout
+Authorization: Bearer {{customerToken}}
+
+###
+
 
 ### ════════════════════════════════════════════════════════════
-###  5. ORDERS  (no auth needed)
+###  5. ORDERS  (customer login required — see section 4)
+###  Every request needs: Authorization: Bearer {{customerToken}}
+###  Customers only ever see their own orders.
 ### ════════════════════════════════════════════════════════════
 
 ### 5a. Create Order — full example
 POST {{baseUrl}}/api/orders/create
 Content-Type: application/json
+Authorization: Bearer {{customerToken}}
 
 {
   "customer": {
@@ -167,12 +196,11 @@ Content-Type: application/json
     "line1": "12, Gandhi Salai",
     "line2": "Near Marina Beach",
     "city": "Chennai",
-    "pincode": "600001",
-    "zoneId": "zone_chennai_central"
+    "pincode": "600043"
   },
   "items": [
-    { "productId": "milk_mysore_pak", "quantity": 2 },
-    { "productId": "prod-rasamalai",  "quantity": 1 }
+    { "productId": "royal-rasamalai",       "quantity": 2 },
+    { "productId": "tandoori-paneer-tikka", "quantity": 1 }
   ],
   "paymentMethod": "upi",
   "idempotencyKey": "order-test-001",
@@ -184,6 +212,7 @@ Content-Type: application/json
 ### 5b. Create Order — minimum required fields only
 POST {{baseUrl}}/api/orders/create
 Content-Type: application/json
+Authorization: Bearer {{customerToken}}
 
 {
   "customer": {
@@ -193,11 +222,10 @@ Content-Type: application/json
   "address": {
     "line1": "45, Anna Nagar",
     "city": "Chennai",
-    "pincode": "600040",
-    "zoneId": "zone_chennai_north"
+    "pincode": "600075"
   },
   "items": [
-    { "productId": "prod-basundi", "quantity": 3 }
+    { "productId": "rich-badam-basundi", "quantity": 3 }
   ],
   "paymentMethod": "credit_card",
   "idempotencyKey": "order-test-002"
@@ -205,14 +233,16 @@ Content-Type: application/json
 
 ###
 
-### 5c. List All Orders
+### 5c. List My Orders  (newest first)
 GET {{baseUrl}}/api/orders
+Authorization: Bearer {{customerToken}}
 
 ###
 
-### 5d. Search Order by order number
+### 5d. Search one of my orders by order number
 # Change the date to today's date in YYYY/MM/DD format
 GET {{baseUrl}}/api/orders/search?orderNumber=JM-2026/09/28-1
+Authorization: Bearer {{customerToken}}
 
 ###
 
@@ -221,18 +251,16 @@ GET {{baseUrl}}/api/orders/search?orderNumber=JM-2026/09/28-1
 ###  REFERENCE
 ### ════════════════════════════════════════════════════════════
 #
-#  VALID productId values (hard-coded in orders.service.ts):
-#    milk_mysore_pak   → Milk Mysore Pak          ₹180 / 250g
-#    prod-rasamalai    → Royal Rasamalai           ₹120 / 2 pcs
-#    prod-basundi      → Rich Badam Basundi        ₹140 / 250g
-#    prod-badam-milk   → Pure Kesari Badam Milk    ₹90  / 300ml
-#    prod-paneer-tikka → Tandoori Paneer Tikka     ₹240 / 6 pcs
+#  productId: any `product_id` from the `products` table
+#    (see GET /api/catalog/products), e.g. royal-rasamalai,
+#    rich-badam-basundi, tandoori-paneer-tikka. Prices come from the DB.
 #
-#  VALID zoneId values:
-#    zone_chennai_central → delivery ₹50,  ETA 2h
-#    zone_chennai_south   → delivery ₹100, ETA 3h
-#    zone_chennai_north   → delivery ₹100, ETA 4h
-#    (orders > ₹1000 → free delivery in any zone)
+#  Delivery zone: matched from `deliveryzones` by the address pincode
+#    (see GET /api/deliveryzones). zoneId is ignored. A pincode that no
+#    zone covers is rejected with 400.
+#    Charge / ETA / free-delivery threshold: the zone's delivery_charge,
+#    estimated_hours and free_delivery columns; if empty, ₹50 / 2h / ₹1000.
+#    Subtotal above free_delivery → delivery is free.
 #
 #  VALID paymentMethod values:
 #    debit_card | credit_card | upi | net_banking | sodexo

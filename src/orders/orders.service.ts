@@ -1,6 +1,17 @@
-import { BadRequestException, Injectable, Inject, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Inject,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { SUPABASE_CLIENT } from '../supabase/supabase.module.js';
+import {
+  SUPABASE_CLIENT,
+  SUPABASE_CLIENT_FACTORY,
+  type SupabaseClientFactory,
+} from '../supabase/supabase.module.js';
+import type { AuthenticatedCustomer } from '../common/guards/supabase-auth.guard.js';
 
 export interface OrderCustomerInput {
   fullName: string;
@@ -13,7 +24,8 @@ export interface OrderAddressInput {
   line2?: string;
   city: string;
   pincode: string;
-  zoneId: string;
+  /** Ignored: the zone is matched from `deliveryzones` by pincode. */
+  zoneId?: string;
 }
 
 export interface OrderItemInput {
@@ -31,44 +43,51 @@ export interface CreateOrderDto {
   customerNotes?: string;
 }
 
+/** An entry in a `products` row's `products` array. */
 interface CatalogProduct {
-  id: string;
+  product_id: string;
   name: string;
   price: number;
-  unit: string;
+  unit?: string;
 }
 
-const CATALOG_PRODUCTS: CatalogProduct[] = [
-  { id: 'milk_mysore_pak', name: 'Milk Mysore Pak', price: 180, unit: '250g' },
-  { id: 'prod-rasamalai', name: 'Royal Rasamalai', price: 120, unit: '2 pcs' },
-  { id: 'prod-basundi', name: 'Rich Badam Basundi', price: 140, unit: '250g' },
-  {
-    id: 'prod-badam-milk',
-    name: 'Pure Kesari Badam Milk',
-    price: 90,
-    unit: '300ml',
-  },
-  {
-    id: 'prod-paneer-tikka',
-    name: 'Tandoori Paneer Tikka',
-    price: 240,
-    unit: '6 pcs',
-  },
-];
+/** A `deliveryzones` row. Charge/hours columns are optional until added. */
+interface DeliveryZone {
+  id: number;
+  location_name: string;
+  pincodes: string[] | null;
+  delivery_charge?: number | null;
+  estimated_hours?: number | null;
+  /** Subtotal above which delivery is free. */
+  free_delivery?: number | null;
+}
 
-const DELIVERY_ZONES: Record<string, { name: string; radiusKm: number }> = {
-  zone_chennai_central: { name: 'Chennai Central', radiusKm: 3.5 },
-  zone_chennai_south: { name: 'Chennai South', radiusKm: 7.5 },
-  zone_chennai_north: { name: 'Chennai North', radiusKm: 10 },
-};
+// Used when a zone has no value of its own for these columns
+const DEFAULT_FREE_DELIVERY_ABOVE = 1000;
+const DEFAULT_DELIVERY_CHARGE = 50;
+const DEFAULT_ESTIMATED_HOURS = 2;
 
+// Postgres error code for a unique constraint violation
+const UNIQUE_VIOLATION = '23505';
+
+// Order numbers carry the shop's local date
+const ORDER_TIME_ZONE = 'Asia/Kolkata';
+
+/**
+ * Order rows are read and written with the logged-in customer's own client
+ * (`account.accessToken`), so Supabase RLS applies as that customer.
+ * Catalogue and zone lookups use the shared client.
+ */
 @Injectable()
 export class OrdersService {
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    @Inject(SUPABASE_CLIENT_FACTORY)
+    private readonly clients: SupabaseClientFactory,
   ) {}
 
-  async createOrder(dto: CreateOrderDto) {
+  /** `account` is the logged-in customer placing the order. */
+  async createOrder(dto: CreateOrderDto, account: AuthenticatedCustomer) {
     const {
       customer,
       address,
@@ -77,34 +96,6 @@ export class OrdersService {
       idempotencyKey,
       customerNotes,
     } = dto;
-
-
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
-
-    const getOrderCountFromDB = async () => {
-      const { data, error } = await this.supabase
-        .from('orders')
-        .select('order_number')
-        .like('order_number', `JM-${dateStr}%`)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        throw new Error(`Failed to get latest order: ${error.message}`);
-      }
-
-      if (!data) {
-        return String(1);
-      }
-
-      const lastOrderNumber = data.order_number;
-
-      // JM-2026/09/19-5 → 5
-      const lastNumber = parseInt(lastOrderNumber.split('-').pop()!, 10);
-
-      return String(lastNumber + 1);
-    };
 
     if (
       !customer?.fullName ||
@@ -129,16 +120,38 @@ export class OrdersService {
       );
     }
 
-    const verifiedItems = items.map((item) => {
-      if (!item || item.quantity <= 0) {
-        throw new BadRequestException(
-          'Item quantities must be positive integers.',
-        );
-      }
-
-      const product = CATALOG_PRODUCTS.find(
-        (entry) => entry.id === item.productId,
+    if (items.some((item) => !item || item.quantity <= 0)) {
+      throw new BadRequestException(
+        'Item quantities must be positive integers.',
       );
+    }
+
+    const db = this.clients.createForUser(account.accessToken);
+
+    // A retry or double-submit reuses the key: return the original order
+    const existingOrder = await this.findOrderByIdempotencyKey(
+      db,
+      account.id,
+      idempotencyKey,
+    );
+    if (existingOrder) {
+      return { success: true, isDuplicate: true, order: existingOrder };
+    }
+
+    const [catalog, matchedZone] = await Promise.all([
+      this.loadCatalog(),
+      this.findZoneByPincode(address.pincode),
+    ]);
+
+    if (!matchedZone) {
+      throw new BadRequestException(
+        `Sorry, we don't deliver to pincode "${address.pincode}" yet.`,
+      );
+    }
+
+    // Prices always come from the DB, never from the request
+    const verifiedItems = items.map((item) => {
+      const product = catalog.get(item.productId);
       if (!product) {
         throw new BadRequestException(
           `Product ID "${item.productId}" was not found in active catalogue.`,
@@ -151,21 +164,19 @@ export class OrdersService {
       };
     });
 
-    const matchedZone = DELIVERY_ZONES[address.zoneId] ?? {
-      name: 'Chennai Central',
-      radiusKm: 3.5,
-    };
-
     const subtotal = verifiedItems.reduce(
       (sum, item) => sum + item.product.price * item.quantity,
       0,
     );
+    const freeDeliveryAbove =
+      matchedZone.free_delivery ?? DEFAULT_FREE_DELIVERY_ABOVE;
     const deliveryCharge =
-      subtotal > 1000 ? 0 : matchedZone.radiusKm < 5 ? 50 : 100;
+      subtotal > freeDeliveryAbove
+        ? 0
+        : (matchedZone.delivery_charge ?? DEFAULT_DELIVERY_CHARGE);
     const total = subtotal + deliveryCharge;
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const orderCount = await getOrderCountFromDB();
-    const orderNumber = `JM-${dateStr}-${orderCount}`;
+    const orderNumber = await this.nextOrderNumber(db);
     const orderId = `ord_${Date.now()}_${randomSuffix}`;
 
     const orderRecord = {
@@ -176,7 +187,7 @@ export class OrdersService {
       total: total,
       status: 'confirmed',
       estimated_hours:
-        matchedZone.radiusKm < 5 ? 2 : matchedZone.radiusKm < 8 ? 3 : 4,
+        matchedZone.estimated_hours ?? DEFAULT_ESTIMATED_HOURS,
       payment_status: 'paid',
       payment_method: paymentMethod,
       items: verifiedItems.map((entry) => ({
@@ -194,61 +205,163 @@ export class OrdersService {
         line1: address.line1,
         city: address.city,
         pincode: address.pincode,
-        zoneName: matchedZone.name,
+        zoneName: matchedZone.location_name,
       },
       customer_notes: customerNotes || undefined,
+      idempotency_key: idempotencyKey,
+      customer_id: account.id,
     };
 
-    // Attempt to persist the order to Supabase (non-blocking on failure)
-    try {
-      const { data, error } = await this.supabase
-        .from('orders')
-        .insert(orderRecord);
-      console.log('Supabase insert result:', { data, error });
-    } catch (err: any) {
-      // swallow errors for now — keep returning success to caller
-      // In production you'd log or instrument this failure
-      throw new Error(`Failed to persist order to Supabase: ${err.message}`);
+    // Supabase reports failures via `error` rather than throwing
+    const { error: insertError } = await db.from('orders').insert(orderRecord);
+
+    if (insertError) {
+      // Unique violation: a concurrent request with the same key won the race
+      if (insertError.code === UNIQUE_VIOLATION) {
+        const racedOrder = await this.findOrderByIdempotencyKey(
+          db,
+          account.id,
+          idempotencyKey,
+        );
+        if (racedOrder) {
+          return { success: true, isDuplicate: true, order: racedOrder };
+        }
+      }
+
+      throw new InternalServerErrorException(
+        `Failed to persist order: ${insertError.message}`,
+      );
     }
 
     return {
       success: true,
+      isDuplicate: false,
       order: orderRecord,
     };
   }
 
+  /**
+   * Returns e.g. `JM-2026/09/19-6`. The sequence comes from the
+   * `next_order_seq` DB function, which increments a per-day counter
+   * atomically, so concurrent checkouts never share a number.
+   */
+  private async nextOrderNumber(db: SupabaseClient) {
+    // en-CA formats as YYYY-MM-DD; the day rolls over at midnight IST
+    const day = new Intl.DateTimeFormat('en-CA', {
+      timeZone: ORDER_TIME_ZONE,
+    }).format(new Date());
 
-async getOrderById(orderNumber: string) {
-  const { data, error } = await this.supabase
-    .from('orders')
-    .select('*')
-    .eq('order_number', orderNumber)
-    .maybeSingle();
+    const { data: seq, error } = await db.rpc('next_order_seq', {
+      p_day: day,
+    });
 
-  if (error) {
-    throw new Error(error.message);
+    if (error || typeof seq !== 'number') {
+      throw new InternalServerErrorException(
+        `Failed to generate order number: ${error?.message ?? 'no sequence returned'}`,
+      );
+    }
+
+    return `JM-${day.replace(/-/g, '/')}-${seq}`;
   }
 
-  if (!data) {
-    throw new NotFoundException(
-      `Order '${orderNumber}' not found`,
+  /** All products across every category row, keyed by product_id. */
+  private async loadCatalog() {
+    const { data, error } = await this.supabase
+      .from('products')
+      .select('products');
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to load product catalogue: ${error.message}`,
+      );
+    }
+
+    const catalog = new Map<string, CatalogProduct>();
+    for (const row of data ?? []) {
+      for (const product of (row.products ?? []) as CatalogProduct[]) {
+        catalog.set(product.product_id, product);
+      }
+    }
+    return catalog;
+  }
+
+  private async findZoneByPincode(pincode: string) {
+    const { data, error } = await this.supabase
+      .from('deliveryzones')
+      .select('*');
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to load delivery zones: ${error.message}`,
+      );
+    }
+
+    return ((data ?? []) as DeliveryZone[]).find((zone) =>
+      zone.pincodes?.includes(pincode.trim()),
     );
   }
 
-  return data;
-}
+  private async findOrderByIdempotencyKey(
+    db: SupabaseClient,
+    customerId: string,
+    idempotencyKey: string,
+  ) {
+    const { data, error } = await db
+      .from('orders')
+      .select('*')
+      .eq('customer_id', customerId)
+      .eq('idempotency_key', idempotencyKey)
+      .maybeSingle();
 
-  async getOrders() {
-    const { data, error } = await this.supabase.from('orders').select('*');
     if (error) {
-      throw new Error(`Failed to fetch orders: ${error.message}`);
+      throw new InternalServerErrorException(
+        `Failed to check for duplicate order: ${error.message}`,
+      );
+    }
+
+    return data;
+  }
+
+  /** One of the customer's own orders; other customers' orders are 404. */
+  async getOrderById(orderNumber: string, account: AuthenticatedCustomer) {
+    // The customer_id filter is defence in depth on top of RLS
+    const { data, error } = await this.clients
+      .createForUser(account.accessToken)
+      .from('orders')
+      .select('*')
+      .eq('customer_id', account.id)
+      .eq('order_number', orderNumber)
+      .maybeSingle();
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to fetch order: ${error.message}`,
+      );
     }
 
     if (!data) {
-    throw new NotFoundException(
-      `No orders found`,
-    );
-  }
+      throw new NotFoundException(`Order '${orderNumber}' not found`);
+    }
+
     return data;
+  }
+
+  /** The customer's own orders, newest first. */
+  async getOrders(account: AuthenticatedCustomer) {
+    const { data, error } = await this.clients
+      .createForUser(account.accessToken)
+      .from('orders')
+      .select('*')
+      .eq('customer_id', account.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to fetch orders: ${error.message}`,
+      );
+    }
+
+    // No orders is an empty list, not an error
+    return data ?? [];
   }
 }
