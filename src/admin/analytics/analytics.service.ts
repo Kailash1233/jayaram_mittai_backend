@@ -4,7 +4,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { SUPABASE_CLIENT } from '../../supabase/supabase.module.js';
+import { SUPABASE_ADMIN_CLIENT } from '../../supabase/supabase.module.js';
 
 /** Shape of a single order item stored in the orders.items JSONB array. */
 interface OrderItem {
@@ -77,10 +77,11 @@ function countBy(values: string[]): Record<string, number> {
 
 // ─── service ────────────────────────────────────────────────────────────────
 
+/** Uses the secret-key client so analytics covers every customer's orders. */
 @Injectable()
 export class AnalyticsService {
   constructor(
-    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
   // ── GET /admin/analytics/sales ───────────────────────────────────────────

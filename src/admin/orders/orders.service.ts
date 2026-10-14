@@ -6,7 +6,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { SUPABASE_CLIENT } from '../../supabase/supabase.module.js';
+import { SUPABASE_ADMIN_CLIENT } from '../../supabase/supabase.module.js';
 
 /** Recognised order status values that admins may set. */
 export type OrderStatus =
@@ -24,10 +24,11 @@ const VALID_STATUSES: OrderStatus[] = [
   'cancelled',
 ];
 
+/** Uses the secret-key client: admins see and update every order, past RLS. */
 @Injectable()
 export class AdminOrdersService {
   constructor(
-    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
   /**
@@ -102,6 +103,7 @@ export class AdminOrdersService {
    * @param id     - The order's `id` column value.
    * @param status - The new status to set.
    * @returns The updated order record.
+   * @throws NotFoundException when no row was updated.
    */
   async updateStatus(id: string, status: string): Promise<unknown> {
     if (!VALID_STATUSES.includes(status as OrderStatus)) {
@@ -109,9 +111,6 @@ export class AdminOrdersService {
         `Invalid status "${status}". Valid values: ${VALID_STATUSES.join(', ')}.`,
       );
     }
-
-    // Confirm the order exists before updating
-    await this.findOne(id);
 
     const { data, error } = await this.supabase
       .from('orders')
@@ -124,6 +123,11 @@ export class AdminOrdersService {
       throw new InternalServerErrorException(
         `Failed to update order status: ${error.message}`,
       );
+    }
+
+    // No row back means nothing was updated (missing order, or RLS blocked it)
+    if (!data) {
+      throw new NotFoundException(`Order with id "${id}" not found.`);
     }
 
     return data;

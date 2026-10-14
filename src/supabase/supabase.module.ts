@@ -3,6 +3,11 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 export const SUPABASE_CLIENT = 'SUPABASE_CLIENT';
 export const SUPABASE_CLIENT_FACTORY = 'SUPABASE_CLIENT_FACTORY';
+/**
+ * Secret (service role) key client: bypasses RLS. Only for admin code
+ * behind `JwtAuthGuard` + `RolesGuard`; never for customer requests.
+ */
+export const SUPABASE_ADMIN_CLIENT = 'SUPABASE_ADMIN_CLIENT';
 
 export interface SupabaseClientFactory {
   /**
@@ -35,6 +40,17 @@ function readConfig() {
   return { url, key };
 }
 
+function readAdminConfig() {
+  const url = process.env.SUPABASE_URL;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (!url || !secretKey) {
+    throw new Error(
+      'Missing SUPABASE_URL or SUPABASE_SECRET_KEY environment variables',
+    );
+  }
+  return { url, secretKey };
+}
+
 @Global()
 @Module({
   providers: [
@@ -60,7 +76,14 @@ function readConfig() {
         };
       },
     },
+    {
+      provide: SUPABASE_ADMIN_CLIENT,
+      useFactory: (): SupabaseClient => {
+        const { url, secretKey } = readAdminConfig();
+        return createClient(url, secretKey, { auth: SERVER_AUTH_OPTIONS });
+      },
+    },
   ],
-  exports: [SUPABASE_CLIENT, SUPABASE_CLIENT_FACTORY],
+  exports: [SUPABASE_CLIENT, SUPABASE_CLIENT_FACTORY, SUPABASE_ADMIN_CLIENT],
 })
 export class SupabaseModule {}

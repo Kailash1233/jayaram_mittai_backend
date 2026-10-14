@@ -16,7 +16,7 @@ Merged from `jayaram_mittai_backend` (public storefront API) and `backend` (admi
 
 ```bash
 npm install
-cp .env.example .env   # fill in DATABASE_URL, JWT_*, SUPABASE_URL, SUPABASE_KEY
+cp .env.example .env   # fill in DATABASE_URL, JWT_*, SUPABASE_URL, SUPABASE_KEY, SUPABASE_SECRET_KEY
 npm run seed:admin     # creates the first admin (admin@jayarammittai.com)
 npm run start:dev
 ```
@@ -146,13 +146,15 @@ Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
 Set the following environment variables before running the server so the backend can connect to your Supabase project:
 
 - `SUPABASE_URL` — your Supabase project URL (e.g. https://xyz.supabase.co)
-- `SUPABASE_KEY` — a service role or anon key with appropriate permissions
+- `SUPABASE_KEY` — the publishable (anon) key; customer requests run under RLS
+- `SUPABASE_SECRET_KEY` — the secret (service role) key, used only by admin orders and analytics. It bypasses RLS, so keep it server-side
 
 Example (Windows PowerShell):
 
 ```powershell
 $env:SUPABASE_URL="https://xyz.supabase.co"
-$env:SUPABASE_KEY="public-or-service-key"
+$env:SUPABASE_KEY="publishable-key"
+$env:SUPABASE_SECRET_KEY="secret-key"
 npm run start:dev
 ```
 

@@ -384,54 +384,19 @@ Authorization: Bearer {{accessToken}}
 ###
 
 # ──────────────────────────────────────────────────────────────
-#  SUPABASE SETUP — run these SQL statements once in the
-#  Supabase Dashboard → SQL Editor before testing sections 8-10
-# ──────────────────────────────────────────────────────────────
-#
-#  -- Delivery Zones
-#  create table delivery_zones (
-#    id         uuid primary key default gen_random_uuid(),
-#    name       text not null,
-#    pincodes   text[] not null default '{}',
-#    radius_km  numeric(6,2),
-#    is_active  boolean not null default true,
-#    created_at timestamptz not null default now()
-#  );
-#
-#  -- Delivery Rules
-#  create table delivery_rules (
-#    id         uuid primary key default gen_random_uuid(),
-#    zone_id    uuid references delivery_zones(id) on delete cascade,
-#    min_order  numeric(10,2) not null default 0,
-#    fee        numeric(10,2) not null default 0,
-#    is_active  boolean not null default true,
-#    created_at timestamptz not null default now()
-#  );
-#
-#  -- Operating Hours
-#  create table delivery_hours (
-#    id            uuid primary key default gen_random_uuid(),
-#    day_of_week   int check (day_of_week between 0 and 6),
-#    override_date date,
-#    open_time     time,
-#    close_time    time,
-#    is_closed     boolean not null default false,
-#    note          text,
-#    created_at    timestamptz not null default now(),
-#    constraint one_of check (
-#      (day_of_week is not null and override_date is null) or
-#      (day_of_week is null     and override_date is not null)
-#    )
-#  );
+#  SUPABASE SETUP — run sql/005_admin_delivery.sql once in the
+#  Supabase Dashboard → SQL Editor before testing sections 8-9
 # ──────────────────────────────────────────────────────────────
 
-@zoneId = PASTE_ZONE_UUID_HERE
-@ruleId = PASTE_RULE_UUID_HERE
-@hoursId = PASTE_HOURS_UUID_HERE
+@zoneId = PASTE_ZONE_ID_HERE
+@hoursId = PASTE_HOURS_ID_HERE
 
 
 ### ════════════════════════════════════════════════════════════
 ###  8. ADMIN DELIVERY — ZONES  (all require admin JWT)
+###
+###  Edits the same `deliveryzones` table checkout prices from.
+###  A pincode may belong to only one zone (409 otherwise).
 ### ════════════════════════════════════════════════════════════
 
 ### 8a. List All Zones
@@ -446,23 +411,23 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "name": "Chennai Central",
-  "pincodes": ["600001", "600002", "600003"],
-  "radiusKm": 3.5,
-  "isActive": true
+  "locationName": "Guduvanchery",
+  "pincodes": ["603202", "603210"],
+  "deliveryCharge": 60,
+  "freeDeliveryAbove": 500,
+  "estimatedHours": 1
 }
 
 ###
 
-### 8c. Create Zone — South Chennai
+### 8c. Create Zone — checkout defaults for fee / threshold / ETA
 POST {{baseUrl}}/admin/delivery/zones
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "name": "Chennai South",
-  "pincodes": ["600020", "600041", "600042"],
-  "radiusKm": 7.5
+  "locationName": "Guindy",
+  "pincodes": ["600032"]
 }
 
 ###
@@ -473,8 +438,8 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "pincodes": ["600001", "600002", "600003", "600004"],
-  "isActive": true
+  "deliveryCharge": 40,
+  "freeDeliveryAbove": 750
 }
 
 ###
@@ -487,90 +452,20 @@ Authorization: Bearer {{accessToken}}
 
 
 ### ════════════════════════════════════════════════════════════
-###  9. ADMIN DELIVERY — RULES  (all require admin JWT)
-###
-###  Rules are tiered: engine picks the rule with the highest
-###  minOrder that is still <= cart subtotal.
-###  zoneId=null → global fallback (applies to all zones)
-### ════════════════════════════════════════════════════════════
-
-### 9a. List All Rules
-GET {{baseUrl}}/admin/delivery/rules
-Authorization: Bearer {{accessToken}}
-
-###
-
-### 9b. Create Global Rule — standard fee
-POST {{baseUrl}}/admin/delivery/rules
-Content-Type: application/json
-Authorization: Bearer {{accessToken}}
-
-{
-  "minOrder": 0,
-  "fee": 50
-}
-
-###
-
-### 9c. Create Global Rule — free delivery above ₹1000
-POST {{baseUrl}}/admin/delivery/rules
-Content-Type: application/json
-Authorization: Bearer {{accessToken}}
-
-{
-  "minOrder": 1000,
-  "fee": 0
-}
-
-###
-
-### 9d. Create Zone-Specific Rule  (paste zone id into @zoneId above)
-POST {{baseUrl}}/admin/delivery/rules
-Content-Type: application/json
-Authorization: Bearer {{accessToken}}
-
-{
-  "zoneId": "{{zoneId}}",
-  "minOrder": 0,
-  "fee": 100
-}
-
-###
-
-### 9e. Update Rule  (paste rule id into @ruleId above)
-PATCH {{baseUrl}}/admin/delivery/rules/{{ruleId}}
-Content-Type: application/json
-Authorization: Bearer {{accessToken}}
-
-{
-  "fee": 40,
-  "isActive": true
-}
-
-###
-
-### 9f. Delete Rule
-DELETE {{baseUrl}}/admin/delivery/rules/{{ruleId}}
-Authorization: Bearer {{accessToken}}
-
-###
-
-
-### ════════════════════════════════════════════════════════════
-###  10. ADMIN DELIVERY — HOURS  (all require admin JWT)
+###  9. ADMIN DELIVERY — HOURS  (all require admin JWT)
 ###
 ###  Two entry types:
 ###    dayOfWeek   0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
 ###    overrideDate  "YYYY-MM-DD"  (beats weekly schedule)
 ### ════════════════════════════════════════════════════════════
 
-### 10a. Get All Hours (weekly schedule + overrides)
+### 9a. Get All Hours (weekly schedule + overrides)
 GET {{baseUrl}}/admin/delivery/hours
 Authorization: Bearer {{accessToken}}
 
 ###
 
-### 10b. Set Monday Hours
+### 9b. Set Monday Hours
 POST {{baseUrl}}/admin/delivery/hours
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -583,7 +478,7 @@ Authorization: Bearer {{accessToken}}
 
 ###
 
-### 10c. Set Sunday as Closed
+### 9c. Set Sunday as Closed
 POST {{baseUrl}}/admin/delivery/hours
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -597,7 +492,7 @@ Authorization: Bearer {{accessToken}}
 
 ###
 
-### 10d. Add a Holiday Override (date-specific)
+### 9d. Add a Holiday Override (date-specific)
 POST {{baseUrl}}/admin/delivery/hours
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -612,7 +507,7 @@ Authorization: Bearer {{accessToken}}
 
 ###
 
-### 10e. Add Extended Hours Override
+### 9e. Add Extended Hours Override
 POST {{baseUrl}}/admin/delivery/hours
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -626,7 +521,7 @@ Authorization: Bearer {{accessToken}}
 
 ###
 
-### 10f. Update an Hours Entry  (paste id into @hoursId above)
+### 9f. Update an Hours Entry  (paste id into @hoursId above)
 PATCH {{baseUrl}}/admin/delivery/hours/{{hoursId}}
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -638,7 +533,7 @@ Authorization: Bearer {{accessToken}}
 
 ###
 
-### 10g. Delete an Hours Entry / Override
+### 9g. Delete an Hours Entry / Override
 DELETE {{baseUrl}}/admin/delivery/hours/{{hoursId}}
 Authorization: Bearer {{accessToken}}
 

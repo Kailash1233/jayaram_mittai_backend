@@ -28,9 +28,14 @@ export class AdminProductsService {
         throw new ConflictException('A product with this name already exists.');
       }
 
+      // Copy DTO fields by name so the request can never set id or timestamps
       const product = Object.assign(new Product(), {
         id: randomUUID(),
-        ...createProductDto,
+        name: createProductDto.name,
+        description: createProductDto.description ?? null,
+        price: createProductDto.price,
+        stock: createProductDto.stock,
+        category: createProductDto.category,
         images: createProductDto.images ?? [],
         isActive: createProductDto.isActive ?? true,
         createdAt: new Date(),

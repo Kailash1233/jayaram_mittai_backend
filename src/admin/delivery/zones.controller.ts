@@ -21,8 +21,9 @@ import { Roles } from '../../common/decorators/roles.decorator.js';
  * Base route: /admin/delivery/zones
  * All routes require admin JWT.
  *
- * Manages delivery zones defined by sets of pincodes.
- * Each zone can have its own fee rules via /admin/delivery/rules.
+ * Manages the `deliveryzones` table that checkout prices orders from:
+ * each zone's pincodes, delivery fee, free-delivery threshold and ETA.
+ * A pincode may belong to only one zone.
  */
 @Controller('admin/delivery/zones')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -32,7 +33,7 @@ export class ZonesController {
 
   /**
    * GET /admin/delivery/zones
-   * Returns all delivery zones, newest first.
+   * Returns all delivery zones in id order.
    */
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -46,11 +47,15 @@ export class ZonesController {
    *
    * Body:
    * {
-   *   "name": "Chennai Central",
-   *   "pincodes": ["600001", "600002"],
-   *   "radiusKm": 3.5,       // optional
-   *   "isActive": true        // optional, defaults to true
+   *   "locationName": "Guduvanchery",
+   *   "pincodes": ["603202", "603210"],
+   *   "deliveryCharge": 60,       // ₹, optional
+   *   "freeDeliveryAbove": 500,   // ₹ subtotal, optional
+   *   "estimatedHours": 1         // optional
    * }
+   *
+   * Omitted charge/threshold/hours use checkout's defaults.
+   * 409 if a pincode already belongs to another zone.
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -71,7 +76,7 @@ export class ZonesController {
 
   /**
    * DELETE /admin/delivery/zones/:id
-   * Deletes a delivery zone.
+   * Deletes a delivery zone; its pincodes stop being deliverable.
    */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)

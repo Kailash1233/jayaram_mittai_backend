@@ -16,8 +16,8 @@ import { AdminDeliveryModule } from './admin/delivery/delivery.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { OtpModule } from './auth/otp/otp.module.js';
-import { AddressService } from './address/address.service.js';
-import { AddressController } from './address/address.controller.js';
+import { AddressService } from './Address/address.service.js';
+import { AddressController } from './Address/address.controller.js';
 import { DeliveryZonesController } from './delivery_zones/delivery.zones.controller.js';
 import { DeliveryZonesService } from './delivery_zones/delivery.zones.service.js';
 
