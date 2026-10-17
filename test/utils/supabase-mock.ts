@@ -11,6 +11,7 @@ const CHAIN_METHODS = [
   'update',
   'delete',
   'eq',
+  'neq',
   'like',
   'order',
   'limit',

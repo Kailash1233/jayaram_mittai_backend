@@ -19,5 +19,7 @@
     "strict": true,
     "strictPropertyInitialization": false,
     "types": ["vitest/globals", "node"]
-  }
+  },
+  // Edge Functions run on Deno (Deno globals, URL imports), not Node
+  "exclude": ["node_modules", "dist", "supabase/functions"]
 }

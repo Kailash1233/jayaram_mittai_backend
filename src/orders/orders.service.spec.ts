@@ -1,13 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
+  BadGatewayException,
   BadRequestException,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
+  SUPABASE_ADMIN_CLIENT,
   SUPABASE_CLIENT,
   SUPABASE_CLIENT_FACTORY,
 } from '../supabase/supabase.module.js';
+import { RazorpayService } from '../payments/razorpay.service.js';
 import { OrdersService } from './orders.service.js';
 import type { CreateOrderDto } from './orders.service.js';
 import {
@@ -58,12 +62,14 @@ const ZONES = [
 describe('OrdersService', () => {
   let service: OrdersService;
   const supabase = createSupabaseMock();
-  // By default the customer's client is the same mock, so table routing in
-  // mockDb covers both; dedicated tests below check the split.
+  // By default the customer's client and the secret-key client are the same
+  // mock, so table routing in mockDb covers all three; dedicated tests below
+  // check which client does what.
   const clients = {
     createAnonymous: vi.fn(),
     createForUser: vi.fn(() => supabase),
   };
+  const razorpay = { createOrder: vi.fn(), keyId: 'rzp_test_key' };
   const account = {
     id: 'customer-1',
     phone: '+919840012345',
@@ -94,6 +100,23 @@ describe('OrdersService', () => {
   });
 
   const create = (dto: CreateOrderDto) => service.createOrder(dto, account);
+
+  /** A service whose secret-key client is `admin` (null = not configured). */
+  const buildWithAdmin = async (admin: unknown) => {
+    // Nest uses Math.random for module ids; un-stub it while compiling
+    vi.mocked(Math.random).mockRestore();
+    const module = await Test.createTestingModule({
+      providers: [
+        OrdersService,
+        { provide: SUPABASE_CLIENT, useValue: supabase },
+        { provide: SUPABASE_CLIENT_FACTORY, useValue: clients },
+        { provide: SUPABASE_ADMIN_CLIENT, useValue: admin },
+        { provide: RazorpayService, useValue: razorpay },
+      ],
+    }).compile();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    return module.get<OrdersService>(OrdersService);
+  };
 
   /**
    * Answers `from(table)` by table name. `orders` is hit in sequence:
@@ -137,6 +160,12 @@ describe('OrdersService', () => {
     supabase.rpc.mockReset();
     supabase.rpc.mockResolvedValue({ data: 1, error: null });
     clients.createForUser.mockImplementation(() => supabase);
+    razorpay.createOrder.mockResolvedValue({
+      id: 'order_RZP1',
+      amount: 0,
+      currency: 'INR',
+      status: 'created',
+    });
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-09-19T10:00:00Z'));
 
@@ -145,6 +174,8 @@ describe('OrdersService', () => {
         OrdersService,
         { provide: SUPABASE_CLIENT, useValue: supabase },
         { provide: SUPABASE_CLIENT_FACTORY, useValue: clients },
+        { provide: SUPABASE_ADMIN_CLIENT, useValue: supabase },
+        { provide: RazorpayService, useValue: razorpay },
       ],
     }).compile();
 
@@ -230,8 +261,9 @@ describe('OrdersService', () => {
           subtotal: 380,
           delivery_charge: 50,
           total: 430,
-          status: 'confirmed',
-          payment_status: 'paid',
+          status: 'pending_payment',
+          payment_status: 'pending',
+          razorpay_order_id: 'order_RZP1',
           payment_method: 'upi',
           estimated_hours: 2,
           customer_notes: 'Please ring bell',
@@ -527,6 +559,7 @@ describe('OrdersService', () => {
           success: true,
           isDuplicate: true,
           order: existingOrder,
+          payment: null,
         });
         // No catalogue/zone lookups, no sequence consumed, no insert
         expect(supabase.rpc).not.toHaveBeenCalled();
@@ -543,6 +576,7 @@ describe('OrdersService', () => {
           success: true,
           isDuplicate: true,
           order: existingOrder,
+          payment: null,
         });
       });
 
@@ -567,32 +601,129 @@ describe('OrdersService', () => {
     });
   });
 
+  describe('payment', () => {
+    it('creates a Razorpay order for the total, in paise, before saving', async () => {
+      const { insertQuery } = mockDb({ seq: 4 });
+
+      await create(buildDto());
+
+      // 2 × ₹120 + ₹50 delivery = ₹290
+      expect(razorpay.createOrder).toHaveBeenCalledWith({
+        amountPaise: 29000,
+        receipt: 'JM-2026/09/19-4',
+        notes: { order_id: expect.any(String), order_number: 'JM-2026/09/19-4' },
+      });
+      expect(insertQuery.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'pending_payment',
+          payment_status: 'pending',
+          razorpay_order_id: 'order_RZP1',
+        }),
+      );
+    });
+
+    it('returns what the frontend needs to open Razorpay Checkout', async () => {
+      mockDb();
+
+      const result = await create(buildDto());
+
+      expect(result.payment).toEqual({
+        provider: 'razorpay',
+        keyId: 'rzp_test_key',
+        razorpayOrderId: 'order_RZP1',
+        amount: 29000,
+        currency: 'INR',
+      });
+    });
+
+    it('stores a missing paymentMethod as null', async () => {
+      const { insertQuery } = mockDb();
+
+      await create(buildDto({ paymentMethod: undefined }));
+
+      expect(insertQuery.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ payment_method: null }),
+      );
+    });
+
+    it('does not save the order when Razorpay refuses', async () => {
+      const { insertQuery } = mockDb();
+      razorpay.createOrder.mockRejectedValueOnce(
+        new BadGatewayException('Could not start payment: Authentication failed'),
+      );
+
+      await expect(create(buildDto())).rejects.toBeInstanceOf(BadGatewayException);
+      expect(insertQuery.insert).not.toHaveBeenCalled();
+    });
+
+    it('returns 503 when the secret key is not configured', async () => {
+      mockDb();
+      const withoutAdmin = await buildWithAdmin(null);
+
+      await expect(
+        withoutAdmin.createOrder(buildDto(), account),
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(razorpay.createOrder).not.toHaveBeenCalled();
+    });
+
+    it('a repeat of an unpaid order returns its checkout details again', async () => {
+      mockDb({
+        duplicate: {
+          data: { id: 'ord_1', total: 290, payment_status: 'pending', razorpay_order_id: 'order_OLD' },
+        },
+      });
+
+      const result = await create(buildDto());
+
+      expect(result.isDuplicate).toBe(true);
+      expect(result.payment).toMatchObject({ razorpayOrderId: 'order_OLD', amount: 29000 });
+      expect(razorpay.createOrder).not.toHaveBeenCalled();
+    });
+
+    it('a repeat of a paid order returns no checkout details', async () => {
+      mockDb({
+        duplicate: {
+          data: { id: 'ord_1', total: 290, payment_status: 'paid', razorpay_order_id: 'order_OLD' },
+        },
+      });
+
+      const result = await create(buildDto());
+
+      expect(result.payment).toBeNull();
+    });
+  });
+
   describe('customer account', () => {
     const notExpected = (client: string) => (table: string) => {
       throw new Error(`${client} client should not query "${table}"`);
     };
 
-    it("writes orders with the customer's own client and catalogue with the shared one", async () => {
+    it('reads with the customer client and writes with the secret-key client', async () => {
       const customerDb = createSupabaseMock();
+      const adminDb = createSupabaseMock();
       const duplicateQuery = createQueryBuilder({ data: null });
       const insertQuery = createQueryBuilder({ data: null });
-      const orderQueries = [duplicateQuery, insertQuery];
       customerDb.from.mockImplementation((table: string) =>
-        table === 'orders' ? orderQueries.shift() : notExpected('customer')(table),
+        table === 'orders' ? duplicateQuery : notExpected('customer')(table),
       );
-      customerDb.rpc.mockResolvedValue({ data: 7, error: null });
+      adminDb.from.mockImplementation((table: string) =>
+        table === 'orders' ? insertQuery : notExpected('secret-key')(table),
+      );
+      adminDb.rpc.mockResolvedValue({ data: 7, error: null });
       clients.createForUser.mockReturnValue(customerDb);
       supabase.from.mockImplementation((table: string) => {
         if (table === 'products') return createQueryBuilder({ data: CATALOG_ROWS });
         if (table === 'deliveryzones') return createQueryBuilder({ data: ZONES });
         return notExpected('shared')(table);
       });
+      const withAdmin = await buildWithAdmin(adminDb);
 
-      const result = await create(buildDto());
+      const result = await withAdmin.createOrder(buildDto(), account);
 
       expect(clients.createForUser).toHaveBeenCalledWith('customer-token');
+      expect(duplicateQuery.eq).toHaveBeenCalledWith('customer_id', 'customer-1');
       expect(result.order.order_number).toBe('JM-2026/09/19-7');
-      expect(supabase.rpc).not.toHaveBeenCalled();
+      expect(customerDb.rpc).not.toHaveBeenCalled();
       expect(insertQuery.insert).toHaveBeenCalledWith(
         expect.objectContaining({ customer_id: 'customer-1' }),
       );

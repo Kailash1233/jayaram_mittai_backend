@@ -11,7 +11,7 @@
 @refreshToken = PASTE_REFRESH_TOKEN_HERE
 
 # Customer tokens — from 4b (OTP verify): access_token / refresh_token
-@customerToken        = PASTE_CUSTOMER_ACCESS_TOKEN_HERE
+@customerToken        = eyJhbGciOiJFUzI1NiIsImtpZCI6ImQ5OWNhY2EwLTE0MGMtNDEwYi1hNzlmLWYxYjhkYmEzMGM4YSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL3NjbHdwanFkbmxpY2NqZGluYXVpLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiIzYjkxYmU2OS0wNDhjLTRkZDAtOTU0Yi0wNjdiNmFiNmE5YTYiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzkxODY3NjExLCJpYXQiOjE3OTE4NjQwMTEsImVtYWlsIjoiIiwicGhvbmUiOiI5MTkwMDAwMDAwMDEiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJwaG9uZSIsInByb3ZpZGVycyI6WyJwaG9uZSJdfSwidXNlcl9tZXRhZGF0YSI6eyJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsInBob25lX3ZlcmlmaWVkIjpmYWxzZSwic3ViIjoiM2I5MWJlNjktMDQ4Yy00ZGQwLTk1NGItMDY3YjZhYjZhOWE2In0sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoib3RwIiwidGltZXN0YW1wIjoxNzkxODY0MDExfV0sInNlc3Npb25faWQiOiIxZDA1ZDhmYi03ODE0LTRmOTctYjMyZi1jZmMwZDgzMjE1MzYiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.lHVhCRYX84KfTHLmD5fEZhg4X6Gq4UFxoeXB8t8PrnDbozx33D0-QIBFHkR7CiRqrPtdr6Bi_xcOTj7DzbjeBg
 @customerRefreshToken = PASTE_CUSTOMER_REFRESH_TOKEN_HERE
 @productId    = PASTE_PRODUCT_UUID_HERE
 @orderId      = PASTE_ORDER_ID_HERE
@@ -130,9 +130,10 @@ GET {{baseUrl}}/api/catalog/products/search?categorySlug=mithai
 ### ════════════════════════════════════════════════════════════
 ###  4. CUSTOMER AUTH — phone OTP via Supabase Auth
 ###
-###  SMS goes through the Phone provider set in Supabase
-###  (Auth → Providers → Phone, e.g. Twilio). For testing without SMS,
-###  add test numbers + fixed codes there and use them below.
+###  The code is delivered over WhatsApp by the Supabase "Send SMS" hook
+###  (supabase/functions/send-whatsapp-otp). For testing without sending
+###  anything, add test numbers + fixed codes under
+###  Auth → Providers → Phone and use them below.
 ###  Phone must be E.164: +<country code><number>.
 ### ════════════════════════════════════════════════════════════
 
@@ -243,6 +244,27 @@ Authorization: Bearer {{customerToken}}
 # Change the date to today's date in YYYY/MM/DD format
 GET {{baseUrl}}/api/orders/search?orderNumber=JM-2026/09/28-1
 Authorization: Bearer {{customerToken}}
+
+###
+
+### 5e. Verify a Razorpay payment  (Checkout's success response, passed on as-is)
+###     Orders start as status "pending_payment" / payment_status "pending";
+###     5a returns `payment` { keyId, razorpayOrderId, amount (paise) } for Checkout.
+###     This marks the order paid + confirmed once the signature checks out.
+POST {{baseUrl}}/api/payments/razorpay/verify
+Content-Type: application/json
+Authorization: Bearer {{customerToken}}
+
+{
+  "razorpay_order_id": "order_XXXXXXXXXXXXXX",
+  "razorpay_payment_id": "pay_XXXXXXXXXXXXXX",
+  "razorpay_signature": "PASTE_SIGNATURE_FROM_CHECKOUT"
+}
+
+###
+# Razorpay webhook (called by Razorpay, not by you):
+#   POST {{baseUrl}}/api/payments/razorpay/webhook
+#   Header x-razorpay-signature; events payment.captured / order.paid / payment.failed
 
 ###
 

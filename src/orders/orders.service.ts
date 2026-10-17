@@ -7,11 +7,14 @@ import {
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  SUPABASE_ADMIN_CLIENT,
   SUPABASE_CLIENT,
   SUPABASE_CLIENT_FACTORY,
+  requireAdmin,
   type SupabaseClientFactory,
 } from '../supabase/supabase.module.js';
 import type { AuthenticatedCustomer } from '../common/guards/supabase-auth.guard.js';
+import { RazorpayService } from '../payments/razorpay.service.js';
 
 export interface OrderCustomerInput {
   fullName: string;
@@ -37,7 +40,11 @@ export interface CreateOrderDto {
   customer: OrderCustomerInput;
   address: OrderAddressInput;
   items: OrderItemInput[];
-  paymentMethod:
+  /**
+   * Optional preference only: the customer picks the method in Razorpay
+   * Checkout, and the method actually used is recorded from the webhook.
+   */
+  paymentMethod?:
     'debit_card' | 'credit_card' | 'upi' | 'net_banking' | 'sodexo';
   idempotencyKey: string;
   customerNotes?: string;
@@ -73,9 +80,21 @@ const UNIQUE_VIOLATION = '23505';
 // Order numbers carry the shop's local date
 const ORDER_TIME_ZONE = 'Asia/Kolkata';
 
+/** What the frontend needs to open Razorpay Checkout for an unpaid order. */
+export interface CheckoutPayment {
+  provider: 'razorpay';
+  keyId: string;
+  razorpayOrderId: string;
+  /** In paise. */
+  amount: number;
+  currency: 'INR';
+}
+
 /**
- * Order rows are read and written with the logged-in customer's own client
+ * Orders are READ with the logged-in customer's own client
  * (`account.accessToken`), so Supabase RLS applies as that customer.
+ * They are WRITTEN with the secret-key client, after the backend has
+ * validated prices and zones: customers cannot insert orders themselves.
  * Catalogue and zone lookups use the shared client.
  */
 @Injectable()
@@ -84,6 +103,8 @@ export class OrdersService {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
     @Inject(SUPABASE_CLIENT_FACTORY)
     private readonly clients: SupabaseClientFactory,
+    @Inject(SUPABASE_ADMIN_CLIENT) private readonly admin: SupabaseClient | null,
+    private readonly razorpay: RazorpayService,
   ) {}
 
   /** `account` is the logged-in customer placing the order. */
@@ -135,7 +156,7 @@ export class OrdersService {
       idempotencyKey,
     );
     if (existingOrder) {
-      return { success: true, isDuplicate: true, order: existingOrder };
+      return this.duplicateResponse(existingOrder);
     }
 
     const [catalog, matchedZone] = await Promise.all([
@@ -175,21 +196,31 @@ export class OrdersService {
         ? 0
         : (matchedZone.delivery_charge ?? DEFAULT_DELIVERY_CHARGE);
     const total = subtotal + deliveryCharge;
+    const admin = requireAdmin(this.admin);
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const orderNumber = await this.nextOrderNumber(db);
+    const orderNumber = await this.nextOrderNumber(admin);
     const orderId = `ord_${Date.now()}_${randomSuffix}`;
 
+    // The amount the customer pays is fixed here, from DB prices
+    const razorpayOrder = await this.razorpay.createOrder({
+      amountPaise: Math.round(total * 100),
+      receipt: orderNumber,
+      notes: { order_id: orderId, order_number: orderNumber },
+    });
+
+    // Unpaid until Razorpay confirms the payment (PaymentsService)
     const orderRecord = {
       id: orderId,
       order_number: orderNumber,
       subtotal: subtotal,
       delivery_charge: deliveryCharge,
       total: total,
-      status: 'confirmed',
+      status: 'pending_payment',
       estimated_hours:
         matchedZone.estimated_hours ?? DEFAULT_ESTIMATED_HOURS,
-      payment_status: 'paid',
-      payment_method: paymentMethod,
+      payment_status: 'pending',
+      payment_method: paymentMethod ?? null,
+      razorpay_order_id: razorpayOrder.id,
       items: verifiedItems.map((entry) => ({
         name: entry.product.name,
         price: entry.product.price,
@@ -213,7 +244,9 @@ export class OrdersService {
     };
 
     // Supabase reports failures via `error` rather than throwing
-    const { error: insertError } = await db.from('orders').insert(orderRecord);
+    const { error: insertError } = await admin
+      .from('orders')
+      .insert(orderRecord);
 
     if (insertError) {
       // Unique violation: a concurrent request with the same key won the race
@@ -224,7 +257,7 @@ export class OrdersService {
           idempotencyKey,
         );
         if (racedOrder) {
-          return { success: true, isDuplicate: true, order: racedOrder };
+          return this.duplicateResponse(racedOrder);
         }
       }
 
@@ -237,6 +270,33 @@ export class OrdersService {
       success: true,
       isDuplicate: false,
       order: orderRecord,
+      payment: this.checkoutPayment(orderRecord),
+    };
+  }
+
+  /** A repeat of an earlier request: same order, and its payment if still unpaid. */
+  private duplicateResponse<T extends Record<string, unknown>>(order: T) {
+    return {
+      success: true,
+      isDuplicate: true,
+      order,
+      payment: this.checkoutPayment(order),
+    };
+  }
+
+  /** Checkout details, or null when there is nothing left to pay. */
+  private checkoutPayment(
+    order: Record<string, unknown>,
+  ): CheckoutPayment | null {
+    if (order.payment_status === 'paid' || !order.razorpay_order_id) {
+      return null;
+    }
+    return {
+      provider: 'razorpay',
+      keyId: this.razorpay.keyId,
+      razorpayOrderId: order.razorpay_order_id as string,
+      amount: Math.round(Number(order.total) * 100),
+      currency: 'INR',
     };
   }
 

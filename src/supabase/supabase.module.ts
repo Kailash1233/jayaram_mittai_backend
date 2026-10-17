@@ -1,13 +1,30 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, ServiceUnavailableException } from '@nestjs/common';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 export const SUPABASE_CLIENT = 'SUPABASE_CLIENT';
 export const SUPABASE_CLIENT_FACTORY = 'SUPABASE_CLIENT_FACTORY';
 /**
+<<<<<<< Updated upstream
  * Secret (service role) key client: bypasses RLS. Only for admin code
  * behind `JwtAuthGuard` + `RolesGuard`; never for customer requests.
  */
 export const SUPABASE_ADMIN_CLIENT = 'SUPABASE_ADMIN_CLIENT';
+=======
+ * Secret-key (service role) client: bypasses RLS. Only for writes customers
+ * must not make themselves: creating orders and recording payments.
+ * `null` until SUPABASE_SECRET_KEY is set; use `requireAdmin()`.
+ */
+export const SUPABASE_ADMIN_CLIENT = 'SUPABASE_ADMIN_CLIENT';
+
+export function requireAdmin(admin: SupabaseClient | null): SupabaseClient {
+  if (!admin) {
+    throw new ServiceUnavailableException(
+      'Ordering is not configured yet: SUPABASE_SECRET_KEY is missing.',
+    );
+  }
+  return admin;
+}
+>>>>>>> Stashed changes
 
 export interface SupabaseClientFactory {
   /**
@@ -78,9 +95,20 @@ function readAdminConfig() {
     },
     {
       provide: SUPABASE_ADMIN_CLIENT,
+<<<<<<< Updated upstream
       useFactory: (): SupabaseClient => {
         const { url, secretKey } = readAdminConfig();
         return createClient(url, secretKey, { auth: SERVER_AUTH_OPTIONS });
+=======
+      useFactory: (): SupabaseClient | null => {
+        const { url } = readConfig();
+        const secretKey = process.env.SUPABASE_SECRET_KEY;
+        // Optional so the app still starts without it; ordering then fails
+        // with a clear 503 via requireAdmin()
+        return secretKey
+          ? createClient(url, secretKey, { auth: SERVER_AUTH_OPTIONS })
+          : null;
+>>>>>>> Stashed changes
       },
     },
   ],
