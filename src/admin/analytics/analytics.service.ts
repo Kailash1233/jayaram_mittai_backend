@@ -4,7 +4,10 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { SUPABASE_ADMIN_CLIENT } from '../../supabase/supabase.module.js';
+import {
+  SUPABASE_ADMIN_CLIENT,
+  requireAdmin,
+} from '../../supabase/supabase.module.js';
 
 /** Shape of a single order item stored in the orders.items JSONB array. */
 interface OrderItem {
@@ -81,8 +84,12 @@ function countBy(values: string[]): Record<string, number> {
 @Injectable()
 export class AnalyticsService {
   constructor(
-    @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
+    @Inject(SUPABASE_ADMIN_CLIENT) private readonly client: SupabaseClient | null,
   ) {}
+
+  private get supabase(): SupabaseClient {
+    return requireAdmin(this.client);
+  }
 
   // ── GET /admin/analytics/sales ───────────────────────────────────────────
 

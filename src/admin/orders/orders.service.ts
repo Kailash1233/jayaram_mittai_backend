@@ -6,7 +6,10 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { SUPABASE_ADMIN_CLIENT } from '../../supabase/supabase.module.js';
+import {
+  SUPABASE_ADMIN_CLIENT,
+  requireAdmin,
+} from '../../supabase/supabase.module.js';
 
 /** Recognised order status values that admins may set. */
 export type OrderStatus =
@@ -28,8 +31,12 @@ const VALID_STATUSES: OrderStatus[] = [
 @Injectable()
 export class AdminOrdersService {
   constructor(
-    @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
+    @Inject(SUPABASE_ADMIN_CLIENT) private readonly client: SupabaseClient | null,
   ) {}
+
+  private get supabase(): SupabaseClient {
+    return requireAdmin(this.client);
+  }
 
   /**
    * GET /admin/orders
