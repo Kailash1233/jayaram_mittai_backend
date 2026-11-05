@@ -15,6 +15,12 @@ import {
 } from '../supabase/supabase.module.js';
 import type { AuthenticatedCustomer } from '../common/guards/supabase-auth.guard.js';
 import { RazorpayService } from '../payments/razorpay.service.js';
+import {
+  customerStockMessage,
+  isPurchasable,
+  resolveStock,
+  type StoredStock,
+} from '../catalog/stock-state.js';
 
 export interface OrderCustomerInput {
   fullName: string;
@@ -51,7 +57,7 @@ export interface CreateOrderDto {
 }
 
 /** An entry in a `products` row's `products` array. */
-interface CatalogProduct {
+interface CatalogProduct extends StoredStock {
   product_id: string;
   name: string;
   price: number;
@@ -176,6 +182,13 @@ export class OrdersService {
       if (!product) {
         throw new BadRequestException(
           `Product ID "${item.productId}" was not found in active catalogue.`,
+        );
+      }
+
+      const resolved = resolveStock(product);
+      if (!isPurchasable(resolved.stockState)) {
+        throw new BadRequestException(
+          `"${product.name}" is unavailable: ${customerStockMessage(resolved)}`,
         );
       }
 

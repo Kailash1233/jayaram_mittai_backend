@@ -7,7 +7,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
-import { SUPABASE_ADMIN_CLIENT } from '../../supabase/supabase.module.js';
+import {
+  SUPABASE_ADMIN_CLIENT,
+  requireAdmin,
+} from '../../supabase/supabase.module.js';
 
 // ─── DTO classes ─────────────────────────────────────────────────────────────
 // Must be classes (not interfaces) so TypeScript can emit decorator metadata
@@ -128,8 +131,12 @@ function throwWriteError(
 @Injectable()
 export class AdminDeliveryService {
   constructor(
-    @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
+    @Inject(SUPABASE_ADMIN_CLIENT) private readonly client: SupabaseClient | null,
   ) {}
+
+  private get supabase(): SupabaseClient {
+    return requireAdmin(this.client);
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   //  ZONES  (/admin/delivery/zones)

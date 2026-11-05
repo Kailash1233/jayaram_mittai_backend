@@ -337,6 +337,74 @@ describe('OrdersService', () => {
       });
     });
 
+    describe('stock state', () => {
+      const withStock = (stock: Record<string, unknown>) => [
+        {
+          products: [
+            {
+              product_id: 'royal-rasamalai',
+              name: 'Royal Rasamalai',
+              price: 120,
+              ...stock,
+            },
+          ],
+        },
+      ];
+
+      it('rejects an item on temporary_hold', async () => {
+        const { insertQuery } = mockDb({
+          products: { data: withStock({ stock_state: 'temporary_hold' }) },
+        });
+
+        await expect(create(buildDto())).rejects.toThrow(
+          '"Royal Rasamalai" is unavailable: Temporarily out of stock.',
+        );
+        expect(insertQuery.insert).not.toHaveBeenCalled();
+      });
+
+      it('rejects an item flagged permanently out of stock', async () => {
+        mockDb({
+          products: {
+            data: withStock({ stock_state: 'permanent_out_of_stock' }),
+          },
+        });
+
+        await expect(create(buildDto())).rejects.toBeInstanceOf(
+          BadRequestException,
+        );
+      });
+
+      it('rejects an item whose tracked stock just hit zero', async () => {
+        mockDb({
+          products: { data: withStock({ stock_state: 'in_stock', stock: 0 }) },
+        });
+
+        await expect(create(buildDto())).rejects.toThrow(
+          '"Royal Rasamalai" is unavailable:',
+        );
+      });
+
+      it('allows an item explicitly in_stock with tracked quantity', async () => {
+        mockDb({
+          products: {
+            data: withStock({ stock_state: 'in_stock', stock: 5 }),
+          },
+        });
+
+        await expect(create(buildDto())).resolves.toMatchObject({
+          success: true,
+        });
+      });
+
+      it('allows an item with no stock fields at all (legacy items)', async () => {
+        mockDb({ products: { data: withStock({}) } });
+
+        await expect(create(buildDto())).resolves.toMatchObject({
+          success: true,
+        });
+      });
+    });
+
     describe('delivery zone', () => {
       it("uses the zone's own delivery charge and hours when set", async () => {
         mockDb();
