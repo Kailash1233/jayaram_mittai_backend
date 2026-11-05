@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { SUPABASE_CLIENT } from '../supabase/supabase.module.js';
+import { SUPABASE_ADMIN_CLIENT, requireAdmin } from '../supabase/supabase.module.js';
 import { UserRole } from './entities/user.entity.js';
 
 /** Shape of a `users` row returned from Supabase. */
@@ -20,11 +20,20 @@ export interface UserRow {
   updatedAt: string;
 }
 
+/**
+ * Admin accounts (email + password hash, refresh token hash) must never be
+ * readable through the public anon key — this always goes through the
+ * secret-key client, same as every other admin-only table.
+ */
 @Injectable()
 export class UsersService {
   constructor(
-    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    @Inject(SUPABASE_ADMIN_CLIENT) private readonly client: SupabaseClient | null,
   ) {}
+
+  private get supabase(): SupabaseClient {
+    return requireAdmin(this.client);
+  }
 
   /**
    * Find a user by their email address.
