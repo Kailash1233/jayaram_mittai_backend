@@ -8,6 +8,7 @@ import {
   SUPABASE_ADMIN_CLIENT,
   requireAdmin,
 } from '../../supabase/supabase.module.js';
+import { isPurchasable, resolveStock } from '../../catalog/stock-state.js';
 
 /** Shape of a single order item stored in the orders.items JSONB array. */
 interface OrderItem {
@@ -165,19 +166,18 @@ export class AnalyticsService {
   // ── GET /admin/analytics/stock-outs ─────────────────────────────────────
 
   /**
-   * Returns products that are out of stock or below a low-stock threshold.
+   * Returns products that are out of stock (on any hold state, or
+   * discontinued) or below a low-stock threshold.
    *
-   * Queries the Supabase `products` table (managed by TypeORM entity).
+   * The `products` table groups items by category: one row per category,
+   * each holding a `products` jsonb array, so this scans every row's
+   * array rather than querying flat columns.
    *
    * @param threshold - stock quantity at or below which a product is "low stock"
    *                    defaults to 10
    */
   async getStockOuts(threshold = 10) {
-    const { data, error } = await this.supabase
-      .from('products')
-      .select('id, name, category, stock, "isActive"')
-      .lte('stock', threshold)
-      .order('stock', { ascending: true });
+    const { data, error } = await this.supabase.from('products').select('*');
 
     if (error) {
       throw new InternalServerErrorException(
@@ -185,23 +185,41 @@ export class AnalyticsService {
       );
     }
 
-    const rows = (data ?? []) as {
-      id: string;
-      name: string;
-      category: string;
-      stock: number;
-      isActive: boolean;
-    }[];
+    type CategoryRow = {
+      category_slug: string;
+      category_name?: string | null;
+      products: Record<string, unknown>[] | null;
+    };
 
-    const outOfStock = rows.filter((p) => p.stock === 0);
-    const lowStock = rows.filter((p) => p.stock > 0 && p.stock <= threshold);
+    const outOfStock: Record<string, unknown>[] = [];
+    const lowStock: Record<string, unknown>[] = [];
+
+    for (const row of (data ?? []) as CategoryRow[]) {
+      for (const product of row.products ?? []) {
+        const resolved = resolveStock(product);
+        const entry = {
+          productId: product.product_id,
+          name: product.name,
+          categorySlug: row.category_slug,
+          categoryName: row.category_name ?? null,
+          stock: resolved.stock,
+          stockState: resolved.stockState,
+        };
+
+        if (!isPurchasable(resolved.stockState)) {
+          outOfStock.push(entry);
+        } else if (resolved.stock != null && resolved.stock <= threshold) {
+          lowStock.push(entry);
+        }
+      }
+    }
 
     return {
       threshold,
       summary: {
         outOfStockCount: outOfStock.length,
         lowStockCount: lowStock.length,
-        totalAtRisk: rows.length,
+        totalAtRisk: outOfStock.length + lowStock.length,
       },
       outOfStock,
       lowStock,

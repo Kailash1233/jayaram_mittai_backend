@@ -41,6 +41,39 @@ describe('ProductsService (catalog)', () => {
 
       await expect(service.getProducts()).rejects.toBe(error);
     });
+
+    it('resolves and surfaces stock state on every product in every category', async () => {
+      const rows = [
+        {
+          category_slug: 'sweets',
+          products: [
+            { product_id: 'in-stock-item', name: 'A', stock: 5 },
+            {
+              product_id: 'held-item',
+              name: 'B',
+              stock_state: 'temporary_hold',
+              custom_message: 'Back soon',
+            },
+          ],
+        },
+      ];
+      supabase.from.mockReturnValue(createQueryBuilder({ data: rows }));
+
+      const result = await service.getProducts();
+
+      expect(result[0].products[0]).toMatchObject({
+        product_id: 'in-stock-item',
+        available: true,
+        stock_state: 'in_stock',
+        stock_message: null,
+      });
+      expect(result[0].products[1]).toMatchObject({
+        product_id: 'held-item',
+        available: false,
+        stock_state: 'temporary_hold',
+        stock_message: 'Back soon',
+      });
+    });
   });
 
   describe('findProductById', () => {
@@ -67,6 +100,10 @@ describe('ProductsService (catalog)', () => {
       ).resolves.toEqual({
         product_id: 'badam-basundi',
         name: 'Rich Badam Basundi',
+        stock_state: 'in_stock',
+        out_of_stock_until: null,
+        available: true,
+        stock_message: null,
       });
       expect(query.eq).toHaveBeenCalledWith('category_slug', 'desserts');
     });
@@ -76,7 +113,7 @@ describe('ProductsService (catalog)', () => {
 
       await expect(
         service.findProductById('desserts', 'gulab-jamun'),
-      ).resolves.toMatchObject({ name: 'Gulab Jamun' });
+      ).resolves.toMatchObject({ name: 'Gulab Jamun', available: true });
     });
 
     it('skips rows without a products array', async () => {

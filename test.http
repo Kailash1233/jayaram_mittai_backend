@@ -13,7 +13,7 @@
 # Customer tokens — from 4b (OTP verify): access_token / refresh_token
 @customerToken        = eyJhbGciOiJFUzI1NiIsImtpZCI6ImQ5OWNhY2EwLTE0MGMtNDEwYi1hNzlmLWYxYjhkYmEzMGM4YSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL3NjbHdwanFkbmxpY2NqZGluYXVpLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiIzYjkxYmU2OS0wNDhjLTRkZDAtOTU0Yi0wNjdiNmFiNmE5YTYiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzkxODY3NjExLCJpYXQiOjE3OTE4NjQwMTEsImVtYWlsIjoiIiwicGhvbmUiOiI5MTkwMDAwMDAwMDEiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJwaG9uZSIsInByb3ZpZGVycyI6WyJwaG9uZSJdfSwidXNlcl9tZXRhZGF0YSI6eyJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsInBob25lX3ZlcmlmaWVkIjpmYWxzZSwic3ViIjoiM2I5MWJlNjktMDQ4Yy00ZGQwLTk1NGItMDY3YjZhYjZhOWE2In0sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoib3RwIiwidGltZXN0YW1wIjoxNzkxODY0MDExfV0sInNlc3Npb25faWQiOiIxZDA1ZDhmYi03ODE0LTRmOTctYjMyZi1jZmMwZDgzMjE1MzYiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.lHVhCRYX84KfTHLmD5fEZhg4X6Gq4UFxoeXB8t8PrnDbozx33D0-QIBFHkR7CiRqrPtdr6Bi_xcOTj7DzbjeBg
 @customerRefreshToken = PASTE_CUSTOMER_REFRESH_TOKEN_HERE
-@productId    = PASTE_PRODUCT_UUID_HERE
+@productId    = royal-rasamalai
 @orderId      = PASTE_ORDER_ID_HERE
 
 
@@ -62,46 +62,94 @@ Authorization: Bearer {{accessToken}}
 ###  2. ADMIN PRODUCTS  (all require admin JWT)
 ### ════════════════════════════════════════════════════════════
 
-### 2a. Create Product
+### 2a. Create Product  (categorySlug picks/creates the category row)
 POST {{baseUrl}}/admin/products
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
+  "categorySlug": "mithai",
+  "categoryName": "Mithai",
+  "productId": "kaju-katli",
   "name": "Kaju Katli",
   "description": "Premium cashew fudge made with pure ghee",
   "price": 350,
   "stock": 100,
-  "category": "Mithai",
   "images": [
     "https://example.com/images/kaju-katli.jpg"
-  ],
-  "isActive": true
+  ]
 }
 
 ###
 
-### 2b. List All Products
+### 2b. List All Products  (flattened across every category, with resolved stock state)
 GET {{baseUrl}}/admin/products
 Authorization: Bearer {{accessToken}}
 
 ###
 
-### 2c. Get Single Product by UUID  (paste UUID into @productId above)
+### 2c. Get Single Product by productId slug  (not a UUID — see @productId above)
 GET {{baseUrl}}/admin/products/{{productId}}
 Authorization: Bearer {{accessToken}}
 
 ###
 
-### 2d. Update Product  (partial — only send changed fields)
+### 2d. Update Product  (partial — only send changed fields; catalogue fields only)
 PATCH {{baseUrl}}/admin/products/{{productId}}
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
   "price": 380,
-  "stock": 80,
-  "isActive": true
+  "stock": 80
+}
+
+###
+
+### 2e. Put a product on a temporary hold  (reopens in 24h unless escalated)
+PATCH {{baseUrl}}/admin/products/{{productId}}/stock
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "action": "mark_temporary",
+  "customMessage": "Back in a day or two!"
+}
+
+###
+
+### 2f. Put a product on a scheduled hold  (requires outOfStockUntil)
+PATCH {{baseUrl}}/admin/products/{{productId}}/stock
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "action": "mark_scheduled",
+  "outOfStockUntil": "2026-12-01T00:00:00.000Z",
+  "customMessage": "Back for the Diwali batch!"
+}
+
+###
+
+### 2g. Discontinue a product permanently
+PATCH {{baseUrl}}/admin/products/{{productId}}/stock
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "action": "mark_permanent"
+}
+
+###
+
+### 2h. Restock a product  (returns to in_stock immediately)
+PATCH {{baseUrl}}/admin/products/{{productId}}/stock
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "action": "restock",
+  "stock": 50
 }
 
 ###

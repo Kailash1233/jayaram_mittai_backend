@@ -5,24 +5,27 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { AdminProductsService } from './products.service.js';
+import { AdminProductsService, type AdminProduct } from './products.service.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
+import { UpdateStockDto } from './dto/update-stock.dto.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
-import { Product } from './entities/product.entity.js';
 
 /**
  * Admin Products Controller
  *
  * Base route: /admin/products
  * All routes require a valid JWT token with role === 'admin'.
+ *
+ * `productId` throughout is the catalogue's own slug (e.g.
+ * "royal-rasamalai"), not a UUID — products live inside the `products`
+ * table's category rows, not as their own rows.
  */
 @Controller('admin/products')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -33,70 +36,67 @@ export class AdminProductsController {
   /**
    * POST /admin/products
    *
-   * Creates a new product.
-   * Requires: Authorization: Bearer <admin_jwt>
-   *
-   * @param createProductDto - Validated product payload from request body
-   * @returns 201 Created with the saved product entity
+   * Creates a new product under `categorySlug`, creating that category
+   * row if it doesn't exist yet.
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async create(@Body() createProductDto: CreateProductDto): Promise<Product> {
+  async create(@Body() createProductDto: CreateProductDto): Promise<AdminProduct> {
     return this.productsService.create(createProductDto);
   }
 
   /**
    * GET /admin/products
    *
-   * Returns all products (newest first).
-   * Requires: Authorization: Bearer <admin_jwt>
-   *
-   * @returns 200 OK with an array of product entities.
+   * Returns every product across every category, flattened, each with its
+   * resolved (display-ready) stock state.
    */
   @Get()
   @HttpCode(HttpStatus.OK)
-  async findAll(): Promise<Product[]> {
+  async findAll(): Promise<AdminProduct[]> {
     return this.productsService.findAll();
   }
 
   /**
-   * GET /admin/products/:id
+   * GET /admin/products/:productId
    *
-   * Returns a single product by UUID.
-   * Requires: Authorization: Bearer <admin_jwt>
-   *
-   * @param id - UUID of the product (validated by ParseUUIDPipe).
-   * @returns 200 OK with the product entity.
-   * @throws 400 Bad Request when the id is not a valid UUID.
-   * @throws 404 Not Found when no product with the given id exists.
+   * @throws 404 Not Found when no product with that id exists.
    */
-  @Get(':id')
+  @Get(':productId')
   @HttpCode(HttpStatus.OK)
-  async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<Product> {
-    return this.productsService.findOne(id);
+  async findOne(@Param('productId') productId: string): Promise<AdminProduct> {
+    return this.productsService.findOne(productId);
   }
 
   /**
-   * PATCH /admin/products/:id
+   * PATCH /admin/products/:productId
    *
-   * Partially updates an existing product.  Only the fields supplied in the
-   * request body are changed.  If `images` is included it completely replaces
-   * the stored image array (image-override semantics).
-   *
-   * Requires: Authorization: Bearer <admin_jwt>
-   *
-   * @param id  - UUID of the product to update (validated by ParseUUIDPipe).
-   * @param updateProductDto - Partial product payload from the request body.
-   * @returns 200 OK with the updated product entity.
-   * @throws 400 Bad Request when the id is not a valid UUID.
-   * @throws 404 Not Found when no product with the given id exists.
+   * Partially updates a product's catalogue fields (name, price,
+   * description, unit, images, raw stock quantity). To move it through
+   * the out-of-stock state machine, use PATCH :productId/stock instead.
    */
-  @Patch(':id')
+  @Patch(':productId')
   @HttpCode(HttpStatus.OK)
   async update(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('productId') productId: string,
     @Body() updateProductDto: UpdateProductDto,
-  ): Promise<Product> {
-    return this.productsService.update(id, updateProductDto);
+  ): Promise<AdminProduct> {
+    return this.productsService.update(productId, updateProductDto);
+  }
+
+  /**
+   * PATCH /admin/products/:productId/stock
+   *
+   * Moves a product through the out-of-stock state machine: hold it
+   * temporarily or on a known schedule, discontinue it, or restock it.
+   * See `UpdateStockDto` for the available actions.
+   */
+  @Patch(':productId/stock')
+  @HttpCode(HttpStatus.OK)
+  async updateStock(
+    @Param('productId') productId: string,
+    @Body() updateStockDto: UpdateStockDto,
+  ): Promise<AdminProduct> {
+    return this.productsService.updateStock(productId, updateStockDto);
   }
 }
