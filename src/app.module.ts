@@ -21,6 +21,7 @@ import { AddressController } from './address/address.controller.js';
 import { DeliveryZonesController } from './delivery_zones/delivery.zones.controller.js';
 import { DeliveryZonesService } from './delivery_zones/delivery.zones.service.js';
 import { PaymentsModule } from './payments/payments.module.js';
+import { AdminRealtimeModule } from './admin/realtime/admin-realtime.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -41,6 +42,9 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
     // Supabase
     SupabaseModule,
+
+    // Live order alerts pushed to the admin dashboard
+    AdminRealtimeModule,
 
     // Customer authentication (phone OTP via Supabase Auth)
     OtpModule,

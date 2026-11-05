@@ -15,6 +15,7 @@ import {
 import type { AuthenticatedCustomer } from '../common/guards/supabase-auth.guard.js';
 import { RazorpayService } from './razorpay.service.js';
 import type { VerifyPaymentDto } from './dto/verify-payment.dto.js';
+import { AdminRealtimeGateway } from '../admin/realtime/admin-realtime.gateway.js';
 
 /** The parts of a Razorpay webhook we use. */
 interface RazorpayWebhookEvent {
@@ -36,6 +37,7 @@ export class PaymentsService {
     @Inject(SUPABASE_CLIENT_FACTORY)
     private readonly clients: SupabaseClientFactory,
     private readonly razorpay: RazorpayService,
+    private readonly realtime: AdminRealtimeGateway,
   ) {}
 
   /** Called by the frontend with Razorpay Checkout's success response. */
@@ -133,6 +135,12 @@ export class PaymentsService {
       throw new InternalServerErrorException(
         `Failed to record payment: ${error.message}`,
       );
+    }
+    // `data` is only non-null on the actual pending -> paid transition
+    // (the `.neq` guard above), so this never double-rings for the same
+    // order even though both the checkout callback and the webhook call in.
+    if (data) {
+      this.realtime.notifyNewOrder(data);
     }
     return data;
   }

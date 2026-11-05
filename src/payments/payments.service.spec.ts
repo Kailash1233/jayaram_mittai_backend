@@ -10,6 +10,7 @@ import {
 } from '../supabase/supabase.module.js';
 import { PaymentsService } from './payments.service.js';
 import { RazorpayService } from './razorpay.service.js';
+import { AdminRealtimeGateway } from '../admin/realtime/admin-realtime.gateway.js';
 import {
   createQueryBuilder,
   createSupabaseMock,
@@ -24,6 +25,7 @@ describe('PaymentsService', () => {
     isValidWebhookSignature: vi.fn(),
   };
   const account = { id: 'customer-1', accessToken: 'customer-token' };
+  const realtime = { notifyNewOrder: vi.fn(), notifyOrderAcknowledged: vi.fn() };
   const dto = {
     razorpay_order_id: 'order_RZP1',
     razorpay_payment_id: 'pay_ABC',
@@ -37,6 +39,7 @@ describe('PaymentsService', () => {
         { provide: SUPABASE_ADMIN_CLIENT, useValue: admin },
         { provide: SUPABASE_CLIENT_FACTORY, useValue: clients },
         { provide: RazorpayService, useValue: razorpay },
+        { provide: AdminRealtimeGateway, useValue: realtime },
       ],
     }).compile();
     return module.get<PaymentsService>(PaymentsService);
@@ -102,6 +105,7 @@ describe('PaymentsService', () => {
       );
       expect(update.eq).toHaveBeenCalledWith('razorpay_order_id', 'order_RZP1');
       expect(update.neq).toHaveBeenCalledWith('payment_status', 'paid');
+      expect(realtime.notifyNewOrder).toHaveBeenCalledWith(paid);
     });
 
     it('returns an already-paid order without updating it again', async () => {
@@ -112,6 +116,7 @@ describe('PaymentsService', () => {
 
       await expect(service.verifyCheckout(dto, account)).resolves.toEqual(order);
       expect(adminDb.from).not.toHaveBeenCalled();
+      expect(realtime.notifyNewOrder).not.toHaveBeenCalled();
     });
 
     it('returns 503 when the secret key is not configured', async () => {
@@ -181,6 +186,7 @@ describe('PaymentsService', () => {
           }),
         );
         expect(update.neq).toHaveBeenCalledWith('payment_status', 'paid');
+        expect(realtime.notifyNewOrder).toHaveBeenCalledWith({ id: 'ord_1' });
       },
     );
 
@@ -195,6 +201,7 @@ describe('PaymentsService', () => {
       expect(update.update).toHaveBeenCalledWith({ payment_status: 'failed' });
       expect(update.eq).toHaveBeenCalledWith('razorpay_order_id', 'order_RZP1');
       expect(update.eq).toHaveBeenCalledWith('payment_status', 'pending');
+      expect(realtime.notifyNewOrder).not.toHaveBeenCalled();
     });
 
     it('acknowledges other events without changing anything', async () => {

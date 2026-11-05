@@ -10,6 +10,7 @@ import {
   SUPABASE_ADMIN_CLIENT,
   requireAdmin,
 } from '../../supabase/supabase.module.js';
+import { AdminRealtimeGateway } from '../realtime/admin-realtime.gateway.js';
 
 /** Recognised order status values that admins may set. */
 export type OrderStatus =
@@ -32,6 +33,7 @@ const VALID_STATUSES: OrderStatus[] = [
 export class AdminOrdersService {
   constructor(
     @Inject(SUPABASE_ADMIN_CLIENT) private readonly client: SupabaseClient | null,
+    private readonly realtime: AdminRealtimeGateway,
   ) {}
 
   private get supabase(): SupabaseClient {
@@ -136,6 +138,11 @@ export class AdminOrdersService {
     if (!data) {
       throw new NotFoundException(`Order with id "${id}" not found.`);
     }
+
+    // Any status move out of the admin queue's "new" bucket silences the
+    // alert bell for this order on every connected dashboard, not just
+    // the one that clicked Accept.
+    this.realtime.notifyOrderAcknowledged(id);
 
     return data;
   }
