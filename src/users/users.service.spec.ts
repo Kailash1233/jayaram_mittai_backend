@@ -3,8 +3,9 @@ import {
   ConflictException,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
-import { SUPABASE_CLIENT } from '../supabase/supabase.module.js';
+import { SUPABASE_ADMIN_CLIENT } from '../supabase/supabase.module.js';
 import { UserRole } from './entities/user.entity.js';
 import { UsersService } from './users.service.js';
 import type { UserRow } from './users.service.js';
@@ -33,7 +34,7 @@ describe('UsersService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
-        { provide: SUPABASE_CLIENT, useValue: supabase },
+        { provide: SUPABASE_ADMIN_CLIENT, useValue: supabase },
       ],
     }).compile();
 
@@ -173,5 +174,16 @@ describe('UsersService', () => {
         service.updateRefreshToken('user-1', null),
       ).rejects.toBeInstanceOf(InternalServerErrorException);
     });
+  });
+
+  it('returns 503 when the secret key is not configured', async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [UsersService, { provide: SUPABASE_ADMIN_CLIENT, useValue: null }],
+    }).compile();
+    const withoutAdmin = module.get<UsersService>(UsersService);
+
+    await expect(withoutAdmin.findByEmail('admin@jayarammittai.com')).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
   });
 });
